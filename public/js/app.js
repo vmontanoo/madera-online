@@ -27,7 +27,15 @@ export const FRONT_OPTIONS = [
 const $app = typeof document !== 'undefined' ? document.getElementById('app') : null;
 const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
 
-let staticBackendFallback = typeof sessionStorage !== 'undefined' && sessionStorage.getItem('dajusca_static_mode') === '1';
+const isStaticCloudHost =
+  typeof location !== 'undefined' &&
+  /\.(workers\.dev|pages\.dev|github\.io|netlify\.app|vercel\.app|web\.app|firebaseapp\.com)$/i.test(
+    location.hostname || ''
+  );
+
+let staticBackendFallback =
+  isStaticCloudHost ||
+  (typeof sessionStorage !== 'undefined' && sessionStorage.getItem('dajusca_static_mode') === '1');
 
 function loadLocalStore() {
   try {
