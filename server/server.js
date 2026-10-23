@@ -1349,7 +1349,7 @@ async function generateProjectQuotePdf({ project, client, quote, layout }) {
       y = PAGE_H - MARGIN;
       // Compact continuation header
       page.drawRectangle({ x: MARGIN, y: y - 24, width: CONTENT_W, height: 24, color: colDark });
-      drawText(`DAJUSCA.APP - Cotización ${quoteNum} (${project.name})`, MARGIN + 10, y - 16, {
+      drawText(`DAJUSCA - Cotización ${quoteNum} (${project.name})`, MARGIN + 10, y - 16, {
         font: fontBold,
         size: 9,
         color: colGold,
@@ -1363,13 +1363,13 @@ async function generateProjectQuotePdf({ project, client, quote, layout }) {
   page.drawRectangle({ x: MARGIN, y: y - headerH, width: CONTENT_W, height: headerH, color: colDark });
   page.drawRectangle({ x: MARGIN, y: y - headerH, width: 6, height: headerH, color: colGold });
 
-  drawText('DAJUSCA.APP', MARGIN + 18, y - 24, { font: fontBold, size: 17, color: colGold });
-  drawText('Dajusca - Carpintería & Diseño de Mobiliario Modular', MARGIN + 18, y - 39, {
+  drawText('DAJUSCA', MARGIN + 18, y - 24, { font: fontBold, size: 17, color: colGold });
+  drawText('Servicios de carpintería y remodelación', MARGIN + 18, y - 39, {
     font: fontReg,
     size: 9,
     color: colWhite,
   });
-  drawText('Dajusca | contacto@dajusca.app | Diseño, Despiece y Cotización', MARGIN + 18, y - 53, {
+  drawText('dajuscamuebles@gmail.com | Tel: +58 4249290826', MARGIN + 18, y - 53, {
     font: fontReg,
     size: 8,
     color: rgb(0.8, 0.78, 0.75),
@@ -1555,7 +1555,7 @@ async function generateProjectQuotePdf({ project, client, quote, layout }) {
   const pages = pdfDoc.getPages();
   pages.forEach((pg, i) => {
     pg.drawText(
-      pdfSafeText(`Dajusca.app | Cotización ${quoteNum} | Proyecto: ${project.name} | Página ${i + 1} de ${pages.length}`),
+      pdfSafeText(`Dajusca | Cotización ${quoteNum} | Proyecto: ${project.name} | Página ${i + 1} de ${pages.length}`),
       { x: MARGIN, y: 18, font: fontReg, size: 7.5, color: colMuted }
     );
   });

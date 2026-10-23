@@ -1784,9 +1784,318 @@ async function editorView(id) {
         a.click();
       };
     }
+    const buildFormalQuotePdfBlob = async () => {
+      await api('PUT', '/api/projects/' + id, { name: state.name, data: state.project, client_id: state.client_id });
+      const activeCli =
+        state.clients.find((c) => String(c.id) === String(state.client_id)) || state.client || null;
+
+      if (!staticBackendFallback && !fbAuth?.currentUser) {
+        const headers = {};
+        const token = localStorage.getItem('madera_token');
+        if (token) headers['Authorization'] = `Bearer ${token}`;
+        const res = await fetch(`/api/projects/${id}/pdf`, { headers, credentials: 'same-origin' });
+        if (res.ok) {
+          const quoteNum = res.headers.get('X-Quote-Number') || 'PRE-0001';
+          const blob = await res.blob();
+          state.quotes = await api('GET', `/api/projects/${id}/quotes`).catch(() => state.quotes);
+          return { blob, quoteNum };
+        }
+      }
+
+      const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
+      let quote = (state.quotes && state.quotes[0]) || null;
+      if (!quote) {
+        quote = await api('POST', `/api/projects/${id}/quotes`, { client_id: state.client_id });
+        state.quotes = [quote, ...(state.quotes || [])];
+      }
+
+      const pdfSafeText = (str) =>
+        String(str ?? '')
+          .replace(/×/g, 'x')
+          .replace(/Ø/g, 'Diam.')
+          .replace(/[—–]/g, '-')
+          .replace(/[“”]/g, '"')
+          .replace(/[‘’]/g, "'")
+          .replace(/•/g, '-')
+          .replace(/[^\x20-\x7E\xA0-\xFF]/g, '');
+
+      const pdfDoc = await PDFDocument.create();
+      const fontReg = await pdfDoc.embedFont(StandardFonts.Helvetica);
+      const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+
+      const quoteNum = quote?.quote_number || 'PRE-0001';
+      const dateStr = new Date(quote?.created_at || Date.now()).toLocaleDateString('es-ES');
+      const cNameMeta = activeCli?.name || 'Cliente General / Consumidor Final';
+      const cTaxMeta = activeCli?.tax_id || 'Sin especificar';
+
+      pdfDoc.setTitle(pdfSafeText(`DAJUSCA - COTIZACION FORMAL ${quoteNum} - ${state.name || 'Mueble modular'}`));
+      pdfDoc.setAuthor(pdfSafeText(`Dajusca - Cliente: ${cNameMeta} (${cTaxMeta})`));
+
+      const PAGE_W = 595.28;
+      const PAGE_H = 841.89;
+      const MARGIN = 36;
+      const CONTENT_W = PAGE_W - MARGIN * 2;
+
+      const colDark = rgb(0.11, 0.10, 0.098);
+      const colGold = rgb(1.0, 0.72, 0.0);
+      const colMuted = rgb(0.42, 0.40, 0.38);
+      const colLightBg = rgb(0.965, 0.96, 0.95);
+      const colBorder = rgb(0.84, 0.82, 0.80);
+      const colWhite = rgb(1, 1, 1);
+
+      let page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+      let y = PAGE_H - MARGIN;
+
+      const drawText = (text, x, yPos, { font = fontReg, size = 9, color = colDark } = {}) => {
+        page.drawText(pdfSafeText(text), { x, y: yPos, font, size, color });
+      };
+
+      const ensureSpace = (neededHeight) => {
+        if (y - neededHeight < MARGIN + 28) {
+          page = pdfDoc.addPage([PAGE_W, PAGE_H]);
+          y = PAGE_H - MARGIN;
+          page.drawRectangle({ x: MARGIN, y: y - 24, width: CONTENT_W, height: 24, color: colDark });
+          drawText(`DAJUSCA - Cotización ${quoteNum} (${state.name || 'Mueble modular'})`, MARGIN + 10, y - 16, {
+            font: fontBold,
+            size: 9,
+            color: colGold,
+          });
+          y -= 36;
+        }
+      };
+
+      // 1. MEMBRETE (Letterhead)
+      const headerH = 68;
+      page.drawRectangle({ x: MARGIN, y: y - headerH, width: CONTENT_W, height: headerH, color: colDark });
+      page.drawRectangle({ x: MARGIN, y: y - headerH, width: 6, height: headerH, color: colGold });
+
+      drawText('DAJUSCA', MARGIN + 18, y - 24, { font: fontBold, size: 17, color: colGold });
+      drawText('Servicios de carpintería y remodelación', MARGIN + 18, y - 39, {
+        font: fontReg,
+        size: 9,
+        color: colWhite,
+      });
+      drawText('dajuscamuebles@gmail.com | Tel: +58 4249290826', MARGIN + 18, y - 53, {
+        font: fontReg,
+        size: 8,
+        color: rgb(0.8, 0.78, 0.75),
+      });
+
+      drawText('COTIZACIÓN FORMAL', PAGE_W - MARGIN - 150, y - 22, { font: fontBold, size: 11, color: colWhite });
+      drawText(`N°: ${quoteNum}`, PAGE_W - MARGIN - 150, y - 38, { font: fontBold, size: 12, color: colGold });
+      drawText(`Fecha: ${dateStr}`, PAGE_W - MARGIN - 150, y - 53, { font: fontReg, size: 8.5, color: colWhite });
+
+      y -= headerH + 14;
+
+      // 2. DATOS DEL CLIENTE Y PROYECTO
+      const boxH = 84;
+      const colW = (CONTENT_W - 12) / 2;
+
+      page.drawRectangle({
+        x: MARGIN,
+        y: y - boxH,
+        width: colW,
+        height: boxH,
+        color: colLightBg,
+        borderColor: colBorder,
+        borderWidth: 1,
+      });
+      drawText('DATOS DEL CLIENTE', MARGIN + 10, y - 15, { font: fontBold, size: 9, color: colDark });
+      const cName = activeCli?.name || 'Cliente General / Consumidor Final';
+      const cTax = activeCli?.tax_id || 'Sin especificar';
+      const cEmail = activeCli?.email || 'Sin correo registrado';
+      const cPhone = activeCli?.phone || 'Sin teléfono';
+      const cAddr = activeCli?.address || 'Retiro en taller / A convenir';
+
+      drawText(`Cliente: ${cName}`, MARGIN + 10, y - 30, { font: fontBold, size: 8.5 });
+      drawText(`RUT / DNI / NIF: ${cTax}`, MARGIN + 10, y - 43, { size: 8, color: colMuted });
+      drawText(`Email: ${cEmail} | Tel: ${cPhone}`, MARGIN + 10, y - 56, { size: 8, color: colMuted });
+      drawText(`Dirección: ${cAddr}`, MARGIN + 10, y - 69, { size: 8, color: colMuted });
+
+      const rightX = MARGIN + colW + 12;
+      page.drawRectangle({
+        x: rightX,
+        y: y - boxH,
+        width: colW,
+        height: boxH,
+        color: colLightBg,
+        borderColor: colBorder,
+        borderWidth: 1,
+      });
+      drawText('ESPECIFICACIONES DEL PROYECTO', rightX + 10, y - 15, { font: fontBold, size: 9, color: colDark });
+      const maxH = layout.maxH || s.height;
+      drawText(`Proyecto: ${state.name || 'Mueble modular'}`, rightX + 10, y - 30, { font: fontBold, size: 8.5 });
+      drawText(`Dimensiones: ${layout.totalW} x ${maxH} x ${s.depth} mm`, rightX + 10, y - 43, { size: 8, color: colMuted });
+      drawText(`Espesor tablero: ${s.thickness} mm | Fondo: ${s.backThickness} mm`, rightX + 10, y - 56, { size: 8, color: colMuted });
+      drawText(`Superficie paneles: ${cl.area.toFixed(2)} m2 | Piezas: ${cl.rows.reduce((a, r) => a + r.qty, 0)}`, rightX + 10, y - 69, {
+        size: 8,
+        color: colMuted,
+      });
+
+      y -= boxH + 14;
+
+      // 3. RESUMEN COMERCIAL (Commercial Summary)
+      const sumH = 74;
+      page.drawRectangle({
+        x: MARGIN,
+        y: y - sumH,
+        width: CONTENT_W,
+        height: sumH,
+        color: colWhite,
+        borderColor: colDark,
+        borderWidth: 1,
+      });
+      page.drawRectangle({ x: MARGIN, y: y - 20, width: CONTENT_W, height: 20, color: colDark });
+      drawText('RESUMEN COMERCIAL DEL PRESUPUESTO', MARGIN + 10, y - 14, {
+        font: fontBold,
+        size: 9,
+        color: colGold,
+      });
+
+      drawText(`Subtotal Paneles y Tableros (${cl.area.toFixed(2)} m2):`, MARGIN + 12, y - 36, { size: 9 });
+      drawText(fmtMoney(cl.panelsTotal), MARGIN + 240, y - 36, { font: fontBold, size: 9 });
+
+      drawText('Subtotal Herrajes y Accesorios:', MARGIN + 12, y - 51, { size: 9 });
+      drawText(fmtMoney(cl.hardwareTotal), MARGIN + 240, y - 51, { font: fontBold, size: 9 });
+
+      const finalTotal = quote?.total !== undefined && quote?.total > 0 ? quote.total : cl.total;
+      page.drawRectangle({
+        x: PAGE_W - MARGIN - 205,
+        y: y - sumH + 10,
+        width: 195,
+        height: 42,
+        color: colLightBg,
+        borderColor: colGold,
+        borderWidth: 1.5,
+      });
+      drawText('TOTAL PRESUPUESTO', PAGE_W - MARGIN - 195, y - 37, { font: fontBold, size: 8.5, color: colMuted });
+      drawText(fmtMoney(finalTotal), PAGE_W - MARGIN - 195, y - 54, { font: fontBold, size: 13, color: colDark });
+
+      y -= sumH + 16;
+
+      // 4. LISTA DE CORTES (Cutlist Table)
+      ensureSpace(60);
+      drawText('LISTA DE CORTES (DESGLOSE DE PANELES)', MARGIN, y - 10, { font: fontBold, size: 10, color: colDark });
+      y -= 16;
+
+      const drawCutlistHeader = () => {
+        page.drawRectangle({ x: MARGIN, y: y - 18, width: CONTENT_W, height: 18, color: colDark });
+        drawText('ID', MARGIN + 6, y - 12, { font: fontBold, size: 8, color: colGold });
+        drawText('Pieza / Rol', MARGIN + 36, y - 12, { font: fontBold, size: 8, color: colWhite });
+        drawText('Orient.', MARGIN + 195, y - 12, { font: fontBold, size: 8, color: colWhite });
+        drawText('Largo', MARGIN + 255, y - 12, { font: fontBold, size: 8, color: colWhite });
+        drawText('Ancho', MARGIN + 305, y - 12, { font: fontBold, size: 8, color: colWhite });
+        drawText('Esp.', MARGIN + 355, y - 12, { font: fontBold, size: 8, color: colWhite });
+        drawText('Cant.', MARGIN + 390, y - 12, { font: fontBold, size: 8, color: colWhite });
+        drawText('P. Unit.', MARGIN + 425, y - 12, { font: fontBold, size: 8, color: colWhite });
+        drawText('Subtotal', MARGIN + 475, y - 12, { font: fontBold, size: 8, color: colWhite });
+        y -= 18;
+      };
+
+      drawCutlistHeader();
+
+      cl.rows.forEach((r, idx) => {
+        if (y - 16 < MARGIN + 28) {
+          ensureSpace(45);
+          drawCutlistHeader();
+        }
+        if (idx % 2 === 1) {
+          page.drawRectangle({ x: MARGIN, y: y - 15, width: CONTENT_W, height: 15, color: colLightBg });
+        }
+        const pieceLabel = `${r.name} (${r.role})`.slice(0, 32);
+        drawText(r.id, MARGIN + 6, y - 11, { font: fontBold, size: 8 });
+        drawText(pieceLabel, MARGIN + 36, y - 11, { size: 8 });
+        drawText(String(r.orientation || ''), MARGIN + 195, y - 11, { size: 7.5, color: colMuted });
+        drawText(`${r.length} mm`, MARGIN + 255, y - 11, { size: 8 });
+        drawText(`${r.width} mm`, MARGIN + 305, y - 11, { size: 8 });
+        drawText(`${r.thickness}`, MARGIN + 355, y - 11, { size: 8 });
+        drawText(String(r.qty), MARGIN + 395, y - 11, { font: fontBold, size: 8 });
+        drawText(fmtMoney(r.unitPrice), MARGIN + 425, y - 11, { size: 8 });
+        drawText(fmtMoney(r.total), MARGIN + 475, y - 11, { font: fontBold, size: 8 });
+        y -= 15;
+      });
+
+      page.drawRectangle({ x: MARGIN, y: y - 17, width: CONTENT_W, height: 17, color: colLightBg, borderColor: colBorder, borderWidth: 0.5 });
+      drawText(`Subtotal Paneles (${cl.area.toFixed(2)} m2)`, MARGIN + 6, y - 12, { font: fontBold, size: 8.5 });
+      drawText(fmtMoney(cl.panelsTotal), MARGIN + 475, y - 12, { font: fontBold, size: 8.5 });
+      y -= 28;
+
+      // 5. DESGLOSE DE HERRAJES (Hardware Table)
+      ensureSpace(60);
+      drawText('DESGLOSE DE HERRAJES Y ACCESORIOS', MARGIN, y - 10, { font: fontBold, size: 10, color: colDark });
+      y -= 16;
+
+      page.drawRectangle({ x: MARGIN, y: y - 18, width: CONTENT_W, height: 18, color: colDark });
+      drawText('Herraje / Especificación', MARGIN + 8, y - 12, { font: fontBold, size: 8, color: colWhite });
+      drawText('Cantidad', MARGIN + 340, y - 12, { font: fontBold, size: 8, color: colWhite });
+      drawText('P. Unit.', MARGIN + 410, y - 12, { font: fontBold, size: 8, color: colWhite });
+      drawText('Subtotal', MARGIN + 475, y - 12, { font: fontBold, size: 8, color: colWhite });
+      y -= 18;
+
+      if (cl.hardware && cl.hardware.length > 0) {
+        cl.hardware.forEach((h, idx) => {
+          ensureSpace(20);
+          if (idx % 2 === 1) {
+            page.drawRectangle({ x: MARGIN, y: y - 15, width: CONTENT_W, height: 15, color: colLightBg });
+          }
+          drawText(h.name, MARGIN + 8, y - 11, { size: 8 });
+          drawText(String(h.qty), MARGIN + 345, y - 11, { font: fontBold, size: 8 });
+          drawText(fmtMoney(h.unitPrice), MARGIN + 410, y - 11, { size: 8 });
+          drawText(fmtMoney(h.total), MARGIN + 475, y - 11, { font: fontBold, size: 8 });
+          y -= 15;
+        });
+      } else {
+        drawText('Sin herrajes adicionales', MARGIN + 8, y - 12, { size: 8, color: colMuted });
+        y -= 16;
+      }
+
+      page.drawRectangle({ x: MARGIN, y: y - 17, width: CONTENT_W, height: 17, color: colLightBg, borderColor: colBorder, borderWidth: 0.5 });
+      drawText('Subtotal Herrajes', MARGIN + 8, y - 12, { font: fontBold, size: 8.5 });
+      drawText(fmtMoney(cl.hardwareTotal), MARGIN + 475, y - 12, { font: fontBold, size: 8.5 });
+      y -= 28;
+
+      // Footer on all pages
+      const pages = pdfDoc.getPages();
+      pages.forEach((pg, i) => {
+        pg.drawText(
+          pdfSafeText(`Dajusca | Cotización ${quoteNum} | Proyecto: ${state.name || 'Mueble modular'} | Página ${i + 1} de ${pages.length}`),
+          { x: MARGIN, y: 18, font: fontReg, size: 7.5, color: colMuted }
+        );
+      });
+
+      const pdfBytes = await pdfDoc.save();
+      const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+      return { blob, quoteNum };
+    };
+
     const printBtn = $('#print');
     if (printBtn) {
-      printBtn.onclick = () => window.print();
+      printBtn.onclick = async () => {
+        try {
+          printBtn.disabled = true;
+          printBtn.textContent = 'Preparando impresión...';
+          const { blob } = await buildFormalQuotePdfBlob();
+          const url = URL.createObjectURL(blob);
+          const printFrame = document.createElement('iframe');
+          printFrame.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+          printFrame.src = url;
+          printFrame.onload = () => {
+            try {
+              printFrame.contentWindow.focus();
+              printFrame.contentWindow.print();
+            } catch {
+              window.print();
+            }
+          };
+          document.body.appendChild(printFrame);
+          drawCutlist();
+        } catch {
+          window.print();
+        } finally {
+          printBtn.disabled = false;
+          printBtn.textContent = 'Imprimir / PDF';
+        }
+      };
     }
     const pdfBtn = $('#pdfQuote');
     if (pdfBtn) {
@@ -1794,59 +2103,11 @@ async function editorView(id) {
         try {
           pdfBtn.disabled = true;
           pdfBtn.textContent = 'Generando PDF...';
-          await api('PUT', '/api/projects/' + id, { name: state.name, data: state.project, client_id: state.client_id });
-          if (!staticBackendFallback) {
-            const headers = {};
-            const token = localStorage.getItem('madera_token');
-            if (token) headers['Authorization'] = `Bearer ${token}`;
-            const res = await fetch(`/api/projects/${id}/pdf`, { headers, credentials: 'same-origin' });
-            if (res.ok) {
-              const quoteNum = res.headers.get('X-Quote-Number') || 'PRE-0001';
-              const blob = await res.blob();
-              const safeName = (state.name || 'mueble').trim().replace(/[/\\?%*:|"<>]/g, '_');
-              const a = document.createElement('a');
-              a.href = URL.createObjectURL(blob);
-              a.download = `cotizacion-${quoteNum}-${safeName}.pdf`;
-              a.click();
-              state.quotes = await api('GET', `/api/projects/${id}/quotes`).catch(() => state.quotes);
-              drawCutlist();
-              return;
-            }
-          }
-          // Client-side PDF fallback using pdf-lib when hosted on a static server
-          const { PDFDocument, StandardFonts, rgb } = await import('pdf-lib');
-          let quote = (state.quotes && state.quotes[0]) || null;
-          if (!quote) {
-            quote = await api('POST', `/api/projects/${id}/quotes`, { client_id: state.client_id });
-            state.quotes = [quote, ...(state.quotes || [])];
-          }
-          const pdfDoc = await PDFDocument.create();
-          const fontBold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
-          const fontReg = await pdfDoc.embedFont(StandardFonts.Helvetica);
-          const page = pdfDoc.addPage([595.28, 841.89]);
-          let y = 795;
-          page.drawText('DAJUSCA.APP - COTIZACION Y HOJA DE CORTE', { x: 40, y, size: 15, font: fontBold, color: rgb(0.12, 0.1, 0.09) });
-          y -= 20;
-          page.drawText(`Presupuesto N°: ${quote.quote_number}   |   Proyecto: ${state.name || 'Sin título'}`, { x: 40, y, size: 10, font: fontBold });
-          y -= 16;
-          const cli = state.client;
-          page.drawText(`Cliente: ${cli ? cli.name : 'Consumidor Final'}${cli?.tax_id ? ' (' + cli.tax_id + ')' : ''}`, { x: 40, y, size: 9.5, font: fontReg });
-          y -= 20;
-          page.drawText(`Resumen Comercial: Tableros ${fmtMoney(cl.panelsTotal)} + Herrajes ${fmtMoney(cl.hardwareTotal)} = TOTAL ${fmtMoney(cl.total)}`, { x: 40, y, size: 10, font: fontBold });
-          y -= 22;
-          page.drawText('LISTA DE CORTES (mm):', { x: 40, y, size: 10, font: fontBold });
-          y -= 14;
-          for (const r of cl.rows.slice(0, 35)) {
-            if (y < 50) break;
-            page.drawText(`${r.id} | ${r.part} (${r.role}) | ${r.length} x ${r.width} x ${r.thickness} mm | Cant: ${r.qty} | ${fmtMoney(r.cost)}`, { x: 40, y, size: 8.5, font: fontReg });
-            y -= 13;
-          }
-          const pdfBytes = await pdfDoc.save();
-          const blob = new Blob([pdfBytes], { type: 'application/pdf' });
+          const { blob, quoteNum } = await buildFormalQuotePdfBlob();
           const safeName = (state.name || 'mueble').trim().replace(/[/\\?%*:|"<>]/g, '_');
           const a = document.createElement('a');
           a.href = URL.createObjectURL(blob);
-          a.download = `cotizacion-${quote.quote_number}-${safeName}.pdf`;
+          a.download = `cotizacion-${quoteNum}-${safeName}.pdf`;
           a.click();
           drawCutlist();
         } catch (err) {
