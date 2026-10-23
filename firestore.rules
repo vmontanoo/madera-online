@@ -119,7 +119,7 @@ service cloud.firestore {
 
     // 3.2 User Public Profile (/users/{userId})
     match /users/{userId} {
-      allow get: if isVerified() && isValidId(userId) && userId == request.auth.uid && existing().uid == request.auth.uid;
+      allow get: if isVerified() && isValidId(userId) && userId == request.auth.uid && (resource == null || existing().uid == request.auth.uid);
       allow list: if false;
 
       allow create: if isVerified()
@@ -148,8 +148,10 @@ service cloud.firestore {
           && isValidId(userId)
           && isValidId(docId)
           && userId == request.auth.uid
-          && existing().uid == request.auth.uid
-          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+          && (resource == null || (
+            existing().uid == request.auth.uid
+            && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid
+          ));
 
         allow list: if false;
 
@@ -181,7 +183,7 @@ service cloud.firestore {
 
     // 3.4 Modular Furniture Projects (/projects/{projectId})
     match /projects/{projectId} {
-      allow get: if isVerified() && isValidId(projectId) && existing().ownerId == request.auth.uid;
+      allow get: if isVerified() && isValidId(projectId) && (resource == null || existing().ownerId == request.auth.uid);
       allow list: if isVerified() && existing().ownerId == request.auth.uid;
 
       allow create: if isVerified()
@@ -207,7 +209,7 @@ service cloud.firestore {
 
     // 3.5 Client Directory (/clients/{clientId}) — PII strictly isolated to owner
     match /clients/{clientId} {
-      allow get: if isVerified() && isValidId(clientId) && existing().ownerId == request.auth.uid;
+      allow get: if isVerified() && isValidId(clientId) && (resource == null || existing().ownerId == request.auth.uid);
       allow list: if isVerified() && existing().ownerId == request.auth.uid;
 
       allow create: if isVerified()
@@ -230,7 +232,7 @@ service cloud.firestore {
 
     // 3.6 Correlative Quotes (/quotes/{quoteId})
     match /quotes/{quoteId} {
-      allow get: if isVerified() && isValidId(quoteId) && existing().ownerId == request.auth.uid;
+      allow get: if isVerified() && isValidId(quoteId) && (resource == null || existing().ownerId == request.auth.uid);
       allow list: if isVerified() && existing().ownerId == request.auth.uid;
 
       allow create: if isVerified()
