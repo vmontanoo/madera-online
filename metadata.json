@@ -1,0 +1,6 @@
+{
+  "name": "Madera Local",
+  "description": "Diseñador 2D/3D de muebles modulares con gavetas internas, cinemática 3D, gestión de clientes, presupuestos correlativos y exportación PDF.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

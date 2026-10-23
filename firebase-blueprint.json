@@ -1,0 +1,254 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Public profile for an authenticated Dajusca.app user",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the user",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Display name of the user",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "provider": {
+          "type": "string",
+          "description": "Authentication provider identifier",
+          "enum": ["google", "password", "local"],
+          "maxLength": 20
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the profile was created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when the profile was last updated"
+        }
+      },
+      "required": ["uid", "name", "provider", "createdAt", "updatedAt"]
+    },
+    "UserPrivateInfo": {
+      "title": "UserPrivateInfo",
+      "description": "Isolated PII document containing the user's email address",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "format": "email",
+          "description": "User email address",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when created"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when updated"
+        }
+      },
+      "required": ["uid", "email", "createdAt", "updatedAt"]
+    },
+    "FurnitureProject": {
+      "title": "FurnitureProject",
+      "description": "2D/3D modular furniture project owned by a user",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the project owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Project title",
+          "minLength": 1,
+          "maxLength": 150
+        },
+        "clientId": {
+          "type": "string",
+          "description": "Optional associated Client document ID or empty string",
+          "maxLength": 128
+        },
+        "settings": {
+          "type": "object",
+          "description": "Cabinet global dimensions and pricing settings"
+        },
+        "columns": {
+          "type": "array",
+          "description": "Bounded list of cabinet columns (1 to 20 columns)"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": ["ownerId", "name", "clientId", "settings", "columns", "createdAt", "updatedAt"]
+    },
+    "ClientRecord": {
+      "title": "ClientRecord",
+      "description": "Customer record owned by a carpenter/designer user (PII restricted to owner)",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Customer full name or company name",
+          "minLength": 1,
+          "maxLength": 150
+        },
+        "taxId": {
+          "type": "string",
+          "description": "Customer tax ID (RUT/DNI/NIF)",
+          "maxLength": 60
+        },
+        "email": {
+          "type": "string",
+          "description": "Customer email address",
+          "maxLength": 254
+        },
+        "phone": {
+          "type": "string",
+          "description": "Customer phone number",
+          "maxLength": 60
+        },
+        "address": {
+          "type": "string",
+          "description": "Customer physical address",
+          "maxLength": 300
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": ["ownerId", "name", "taxId", "email", "phone", "address", "createdAt", "updatedAt"]
+    },
+    "QuoteRecord": {
+      "title": "QuoteRecord",
+      "description": "Correlative formal quotation generated for a furniture project",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "Firebase Auth UID of the owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "projectId": {
+          "type": "string",
+          "description": "Parent project document ID",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "clientId": {
+          "type": "string",
+          "description": "Optional Client document ID or empty string",
+          "maxLength": 128
+        },
+        "seq": {
+          "type": "integer",
+          "description": "Positive correlative sequence integer"
+        },
+        "quoteNumber": {
+          "type": "string",
+          "description": "Formatted correlative quote number (e.g. PRE-0001)",
+          "minLength": 4,
+          "maxLength": 32,
+          "pattern": "^PRE-[0-9]{4,}$"
+        },
+        "total": {
+          "type": "number",
+          "description": "Total commercial amount"
+        },
+        "currency": {
+          "type": "string",
+          "description": "Currency symbol or code",
+          "minLength": 1,
+          "maxLength": 10
+        },
+        "status": {
+          "type": "string",
+          "description": "Lifecycle status of the quote",
+          "enum": ["issued", "archived"],
+          "maxLength": 20
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": ["ownerId", "projectId", "clientId", "seq", "quoteNumber", "total", "currency", "status", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Public user profile document keyed by Firebase Auth UID"
+    },
+    "/users/{userId}/private/{docId}": {
+      "schema": { "$ref": "#/entities/UserPrivateInfo" },
+      "description": "Isolated PII subcollection storing the user's private email"
+    },
+    "/projects/{projectId}": {
+      "schema": { "$ref": "#/entities/FurnitureProject" },
+      "description": "Modular furniture projects owned by individual users"
+    },
+    "/clients/{clientId}": {
+      "schema": { "$ref": "#/entities/ClientRecord" },
+      "description": "Client directory records owned by individual users"
+    },
+    "/quotes/{quoteId}": {
+      "schema": { "$ref": "#/entities/QuoteRecord" },
+      "description": "Correlative quotes generated for furniture projects"
+    }
+  }
+}

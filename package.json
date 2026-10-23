@@ -1,0 +1,24 @@
+{
+  "name": "madera-local",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Réplica local de un diseñador 2D/3D de muebles modulares con módulos anidados y cutlist con precios",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node server/server.js",
+    "build": "mkdir -p public/vendor/three/build public/vendor/three/examples/jsm/controls public/vendor/three/examples/jsm/helpers public/vendor/pdf-lib public/vendor/firebase && cp -f node_modules/three/build/three.module.js node_modules/three/build/three.core.js public/vendor/three/build/ && cp -f node_modules/three/examples/jsm/controls/OrbitControls.js public/vendor/three/examples/jsm/controls/ && cp -f node_modules/three/examples/jsm/helpers/ViewHelper.js public/vendor/three/examples/jsm/helpers/ && cp -f node_modules/pdf-lib/dist/pdf-lib.esm.min.js public/vendor/pdf-lib/ && cp -f node_modules/firebase/firebase-app.js node_modules/firebase/firebase-auth.js node_modules/firebase/firebase-firestore.js public/vendor/firebase/ && npx eslint firestore.rules && node --check server/server.js && node --check public/js/layout.js && node --check public/js/viewer.js && node --check public/js/firebase-cloud.js && node --check public/js/app.js && node --check public/js/model.js",
+    "lint": "npx eslint firestore.rules && node --check server/server.js && node --check public/js/layout.js && node --check public/js/viewer.js && node --check public/js/firebase-cloud.js && node --check public/js/app.js",
+    "test": "node --test test/*.test.js"
+  },
+  "dependencies": {
+    "express": "^5.3.0",
+    "firebase": "^13.1.0",
+    "pdf-lib": "^1.17.1",
+    "three": "^0.186.1"
+  },
+  "devDependencies": {
+    "@firebase/eslint-plugin-security-rules": "^0.0.2",
+    "eslint": "^10.13.0"
+  }
+}

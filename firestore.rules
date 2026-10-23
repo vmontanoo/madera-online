@@ -1,0 +1,261 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // =========================================================================
+    // 0. GLOBAL SAFETY NET (Default-Deny Catch-All)
+    // =========================================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // 1. HARDENED PRIMITIVE HELPERS
+    // =========================================================================
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isValidOptionalId(id) {
+      return id is string && id.size() <= 128 && (id.size() == 0 || id.matches('^[a-zA-Z0-9_\\-]+$'));
+    }
+
+    // =========================================================================
+    // 2. ENTITY VALIDATION BLUEPRINTS (Anti-Update-Gap)
+    // =========================================================================
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'name', 'provider', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'name', 'provider', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 100
+        && data.provider is string && data.provider.size() >= 1 && data.provider.size() <= 20
+        && data.provider in ['google', 'password', 'local']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPrivateInfo(data) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['uid', 'email', 'createdAt', 'updatedAt'])
+        && isValidId(data.uid)
+        && data.uid == request.auth.uid
+        && data.email is string && data.email.size() >= 3 && data.email.size() <= 254
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidFurnitureProject(data) {
+      return data.keys().hasAll(['ownerId', 'name', 'clientId', 'settings', 'columns', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerId', 'name', 'clientId', 'settings', 'columns', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 150
+        && isValidOptionalId(data.clientId)
+        && data.settings is map && data.settings.size() >= 1 && data.settings.size() <= 40
+        && data.columns is list && data.columns.size() >= 1 && data.columns.size() <= 20 && data.columns[0] is map
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidClientRecord(data) {
+      return data.keys().hasAll(['ownerId', 'name', 'taxId', 'email', 'phone', 'address', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerId', 'name', 'taxId', 'email', 'phone', 'address', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 150
+        && data.taxId is string && data.taxId.size() <= 60
+        && data.email is string && data.email.size() <= 254
+        && data.phone is string && data.phone.size() <= 60
+        && data.address is string && data.address.size() <= 300
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidQuoteRecord(data) {
+      return data.keys().hasAll(['ownerId', 'projectId', 'clientId', 'seq', 'quoteNumber', 'total', 'currency', 'status', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['ownerId', 'projectId', 'clientId', 'seq', 'quoteNumber', 'total', 'currency', 'status', 'createdAt', 'updatedAt'])
+        && isValidId(data.ownerId)
+        && data.ownerId == request.auth.uid
+        && isValidId(data.projectId)
+        && isValidOptionalId(data.clientId)
+        && data.seq is int && data.seq >= 1 && data.seq <= 999999
+        && data.quoteNumber is string && data.quoteNumber.size() >= 8 && data.quoteNumber.size() <= 32
+        && data.quoteNumber.matches('^PRE-[0-9]{4,}$')
+        && (data.total is int || data.total is float) && data.total >= 0
+        && data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10
+        && data.status is string && data.status.size() >= 1 && data.status.size() <= 20
+        && data.status in ['issued', 'archived']
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    // =========================================================================
+    // 3. COLLECTION RULES
+    // =========================================================================
+
+    // 3.1 Connection health-check endpoint (strictly read-only for signed-in users, never writable)
+    match /test/connection {
+      allow get: if isSignedIn();
+      allow list, create, update, delete: if false;
+    }
+
+    // 3.2 User Public Profile (/users/{userId})
+    match /users/{userId} {
+      allow get: if isVerified() && isValidId(userId) && userId == request.auth.uid && existing().uid == request.auth.uid;
+      allow list: if false;
+
+      allow create: if isVerified()
+        && isValidId(userId)
+        && userId == request.auth.uid
+        && isValidUserProfile(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && isValidUserProfile(incoming())
+        && isValidId(userId)
+        && userId == request.auth.uid
+        && existing().uid == request.auth.uid
+        && incoming().uid == existing().uid
+        && incoming().provider == existing().provider
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'updatedAt']);
+
+      allow delete: if false;
+
+      // 3.3 User Private PII Subcollection (/users/{userId}/private/{docId})
+      match /private/{docId} {
+        allow get: if isVerified()
+          && isValidId(userId)
+          && isValidId(docId)
+          && userId == request.auth.uid
+          && existing().uid == request.auth.uid
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+
+        allow list: if false;
+
+        allow create: if isVerified()
+          && isValidId(userId)
+          && isValidId(docId)
+          && userId == request.auth.uid
+          && isValidUserPrivateInfo(incoming())
+          && incoming().createdAt == request.time
+          && incoming().updatedAt == request.time
+          && existsAfter(/databases/$(database)/documents/users/$(userId))
+          && getAfter(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+
+        allow update: if isVerified()
+          && isValidUserPrivateInfo(incoming())
+          && isValidId(userId)
+          && isValidId(docId)
+          && userId == request.auth.uid
+          && existing().uid == request.auth.uid
+          && incoming().uid == existing().uid
+          && incoming().createdAt == existing().createdAt
+          && incoming().updatedAt == request.time
+          && incoming().diff(existing()).affectedKeys().hasOnly(['email', 'updatedAt'])
+          && get(/databases/$(database)/documents/users/$(userId)).data.uid == request.auth.uid;
+
+        allow delete: if false;
+      }
+    }
+
+    // 3.4 Modular Furniture Projects (/projects/{projectId})
+    match /projects/{projectId} {
+      allow get: if isVerified() && isValidId(projectId) && existing().ownerId == request.auth.uid;
+      allow list: if isVerified() && existing().ownerId == request.auth.uid;
+
+      allow create: if isVerified()
+        && isValidId(projectId)
+        && isValidFurnitureProject(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && isValidFurnitureProject(incoming())
+        && isValidId(projectId)
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          // Action 1: Edit project design, title, or settings
+          incoming().diff(existing()).affectedKeys().hasOnly(['name', 'settings', 'columns', 'clientId', 'updatedAt'])
+        );
+
+      allow delete: if isVerified() && isValidId(projectId) && existing().ownerId == request.auth.uid;
+    }
+
+    // 3.5 Client Directory (/clients/{clientId}) — PII strictly isolated to owner
+    match /clients/{clientId} {
+      allow get: if isVerified() && isValidId(clientId) && existing().ownerId == request.auth.uid;
+      allow list: if isVerified() && existing().ownerId == request.auth.uid;
+
+      allow create: if isVerified()
+        && isValidId(clientId)
+        && isValidClientRecord(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerified()
+        && isValidClientRecord(incoming())
+        && isValidId(clientId)
+        && existing().ownerId == request.auth.uid
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'taxId', 'email', 'phone', 'address', 'updatedAt']);
+
+      allow delete: if isVerified() && isValidId(clientId) && existing().ownerId == request.auth.uid;
+    }
+
+    // 3.6 Correlative Quotes (/quotes/{quoteId})
+    match /quotes/{quoteId} {
+      allow get: if isVerified() && isValidId(quoteId) && existing().ownerId == request.auth.uid;
+      allow list: if isVerified() && existing().ownerId == request.auth.uid;
+
+      allow create: if isVerified()
+        && isValidId(quoteId)
+        && isValidQuoteRecord(incoming())
+        && incoming().status == 'issued'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time
+        && exists(/databases/$(database)/documents/projects/$(incoming().projectId))
+        && get(/databases/$(database)/documents/projects/$(incoming().projectId)).data.ownerId == request.auth.uid;
+
+      allow update: if isVerified()
+        && isValidQuoteRecord(incoming())
+        && isValidId(quoteId)
+        && existing().ownerId == request.auth.uid
+        && existing().status != 'archived'
+        && incoming().ownerId == existing().ownerId
+        && incoming().projectId == existing().projectId
+        && incoming().seq == existing().seq
+        && incoming().quoteNumber == existing().quoteNumber
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']);
+
+      allow delete: if false;
+    }
+  }
+}
