@@ -239,6 +239,10 @@ export class Viewer {
     const clock = new THREE.Clock();
     const loop = () => {
       if (!this.running) return;
+      if (typeof document !== 'undefined' && document.hidden === true) {
+        raf(loop);
+        return;
+      }
       const delta = clock.getDelta();
       const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
 
@@ -517,12 +521,18 @@ export class Viewer {
     this.layout = layout;
     this.kinematicNodes = [];
 
-    // Dispose old resources
+    // Dispose old resources (deduplicating shared materials)
+    const disposedMats = new Set();
     this.group.traverse((o) => {
       if (o.geometry) o.geometry.dispose();
       if (o.material) {
-        if (Array.isArray(o.material)) o.material.forEach((m) => m.dispose());
-        else o.material.dispose();
+        const mats = Array.isArray(o.material) ? o.material : [o.material];
+        mats.forEach((m) => {
+          if (m && !disposedMats.has(m)) {
+            disposedMats.add(m);
+            m.dispose();
+          }
+        });
       }
     });
     this.group.clear();
@@ -569,17 +579,19 @@ export class Viewer {
       });
     };
 
+    // Shared edge material across all piece outlines in this scene pass
+    const sharedEdgeMat = new THREE.LineBasicMaterial({
+      color: isNeon ? 0xff6600 : 0x4a3219,
+      linewidth: isNeon ? 2 : 1,
+      transparent: !isNeon,
+      opacity: isNeon ? 1.0 : 0.25,
+      toneMapped: false,
+    });
+
     // Helper: LineSegments edges creator
     const addEdges = (mesh, geo) => {
       const edgeGeo = new THREE.EdgesGeometry(geo);
-      const edgeMat = new THREE.LineBasicMaterial({
-        color: isNeon ? 0xff6600 : 0x4a3219,
-        linewidth: isNeon ? 2 : 1,
-        transparent: !isNeon,
-        opacity: isNeon ? 1.0 : 0.25,
-        toneMapped: false,
-      });
-      const edges = new THREE.LineSegments(edgeGeo, edgeMat);
+      const edges = new THREE.LineSegments(edgeGeo, sharedEdgeMat);
       edges.userData = { isEdge: true };
       mesh.add(edges);
     };

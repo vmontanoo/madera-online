@@ -373,8 +373,9 @@ function upsertGoogleUser({ email, name, google_id, avatar_url }) {
 // ============================================================================
 const app = express();
 app.use(express.json({ limit: '5mb' }));
+app.use('/vendor', express.static(path.join(root, 'public', 'vendor'), { maxAge: '365d', immutable: true }));
 app.use(express.static(path.join(root, 'public')));
-app.use('/vendor/three', express.static(path.join(root, 'node_modules', 'three')));
+app.use('/vendor/three', express.static(path.join(root, 'node_modules', 'three'), { maxAge: '365d', immutable: true }));
 
 // ----------------------------------------------------------------------------
 // 4.1 Registration Handlers

@@ -1068,8 +1068,10 @@ async function editorView(id) {
   let rec;
   let clientsList = [];
   try {
-    rec = await api('GET', '/api/projects/' + id);
-    clientsList = await api('GET', '/api/clients').catch(() => []);
+    [rec, clientsList] = await Promise.all([
+      api('GET', '/api/projects/' + id),
+      api('GET', '/api/clients').catch(() => []),
+    ]);
   } catch {
     location.hash = '#/';
     return;
@@ -1224,7 +1226,7 @@ async function editorView(id) {
             const deltaH = startPt.y - curPt.y;
             const newH = calculateTopBorderDrag(startH, deltaH, t, childCount);
             col.height = newH;
-            refresh();
+            refresh(true);
           };
 
           const onMouseUp = () => {
@@ -1234,6 +1236,7 @@ async function editorView(id) {
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);
             if (hasMoved) {
+              refresh(false);
               pushUndo(initialSnapshot);
               save();
             }
@@ -1264,7 +1267,7 @@ async function editorView(id) {
             } else if (d.type === 'col-outer') {
               state.project.columns[colIdx].width = Math.round(Math.max(minW, startLeftW + deltaX));
             }
-            refresh();
+            refresh(true);
           };
 
           const onMouseUp = () => {
@@ -1274,6 +1277,7 @@ async function editorView(id) {
             window.removeEventListener('mousemove', onMouseMove);
             window.removeEventListener('mouseup', onMouseUp);
             if (hasMoved) {
+              refresh(false);
               pushUndo(initialSnapshot);
             }
           };
@@ -1324,7 +1328,7 @@ async function editorView(id) {
           const roundedNext = totalPair - roundedPrev;
           prevNode.size = roundedPrev;
           nextNode.size = roundedNext;
-          refresh();
+          refresh(true);
         };
 
         const onMouseUp = () => {
@@ -1334,6 +1338,7 @@ async function editorView(id) {
           window.removeEventListener('mousemove', onMouseMove);
           window.removeEventListener('mouseup', onMouseUp);
           if (hasMoved) {
+            refresh(false);
             pushUndo(initialSnapshot);
           }
         };
@@ -1925,14 +1930,18 @@ async function editorView(id) {
   const cardHtml = (r) =>
     `<div class="pcard" data-id="${r.id}">${pieceSvg(r, false)}<div class="pmeta"><span class="pid">${r.id}</span><span class="qty">×${r.qty}</span></div></div>`;
 
-  function refresh() {
+  function refresh(isDragging = false) {
     layout = computeLayout(state.project);
     $('#price').textContent = fmtMoney(layout.cutlist.total);
     viewer.update(layout, new Set(state.selected ? collectIds(state.selected) : []));
-    drawCutlist();
+    if (!isDragging || state.tab === 'cutlist') {
+      drawCutlist();
+    }
     if (state.tab === 'design') {
       drawCanvas();
-      drawDock();
+      if (!isDragging) {
+        drawDock();
+      }
     }
   }
   function collectIds(id) {

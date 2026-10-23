@@ -87,8 +87,11 @@ async function testConnection() {
 }
 
 let authReadyPromise = null;
+const projectCache = new Map();
+const clientsCache = new Map();
+
 if (isBrowser && auth) {
-  testConnection();
+  setTimeout(testConnection, 1200);
   authReadyPromise = new Promise((resolve) => {
     const unsub = onAuthStateChanged(auth, (user) => {
       unsub();
@@ -237,6 +240,8 @@ export async function loginWithEmailFirebase(email, password) {
 }
 
 export async function signOutFirebase() {
+  projectCache.clear();
+  clientsCache.clear();
   if (auth?.currentUser) {
     await signOut(auth);
   }
@@ -267,7 +272,7 @@ export async function handleFirestoreApi(method, url, body) {
       const snap = await getDocs(q);
       const list = snap.docs.map((d) => {
         const data = d.data();
-        return {
+        const item = {
           id: d.id,
           name: data.name,
           client_id: data.clientId || null,
@@ -275,6 +280,15 @@ export async function handleFirestoreApi(method, url, body) {
           created_at: tsToMs(data.createdAt),
           updated_at: tsToMs(data.updatedAt),
         };
+        projectCache.set(d.id, {
+          name: item.name,
+          clientId: data.clientId || '',
+          settings: item.data.settings,
+          columns: item.data.columns,
+          createdAt: data.createdAt,
+          updatedAt: data.updatedAt,
+        });
+        return item;
       });
       return list.sort((a, b) => b.updated_at - a.updated_at);
     } catch (error) {
@@ -300,6 +314,14 @@ export async function handleFirestoreApi(method, url, body) {
         columns: safeColumns,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
+      });
+      projectCache.set(projectId, {
+        name: safeName,
+        clientId: safeClientId,
+        settings: safeSettings,
+        columns: safeColumns,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
       });
       return {
         id: projectId,
@@ -463,31 +485,41 @@ export async function handleFirestoreApi(method, url, body) {
     const docPath = `projects/${pid}`;
     if (method === 'GET') {
       let snap;
+      let quotes = [];
       try {
-        snap = await getDoc(doc(db, 'projects', pid));
+        [snap, quotes] = await Promise.all([
+          getDoc(doc(db, 'projects', pid)),
+          handleFirestoreApi('GET', `/api/projects/${pid}/quotes`).catch(() => []),
+        ]);
       } catch (error) {
         handleFirestoreError(error, OperationType.GET, docPath);
       }
       if (!snap || !snap.exists()) throw Object.assign(new Error('Proyecto no encontrado'), { status: 404 });
       const d = snap.data();
+      projectCache.set(pid, d);
+
       let client = null;
       if (d.clientId) {
-        try {
-          const cSnap = await getDoc(doc(db, 'clients', d.clientId));
-          if (cSnap.exists()) {
-            const cd = cSnap.data();
-            client = {
-              id: cSnap.id,
-              name: cd.name,
-              tax_id: cd.taxId,
-              email: cd.email,
-              phone: cd.phone,
-              address: cd.address,
-            };
-          }
-        } catch {}
+        if (clientsCache.has(d.clientId)) {
+          client = clientsCache.get(d.clientId);
+        } else {
+          try {
+            const cSnap = await getDoc(doc(db, 'clients', d.clientId));
+            if (cSnap.exists()) {
+              const cd = cSnap.data();
+              client = {
+                id: cSnap.id,
+                name: cd.name,
+                tax_id: cd.taxId,
+                email: cd.email,
+                phone: cd.phone,
+                address: cd.address,
+              };
+              clientsCache.set(cSnap.id, client);
+            }
+          } catch {}
+        }
       }
-      const quotes = await handleFirestoreApi('GET', `/api/projects/${pid}/quotes`);
       return {
         id: snap.id,
         name: d.name,
@@ -501,32 +533,51 @@ export async function handleFirestoreApi(method, url, body) {
     }
 
     if (method === 'PUT') {
-      let existingSnap;
-      try {
-        existingSnap = await getDoc(doc(db, 'projects', pid));
-      } catch (error) {
-        handleFirestoreError(error, OperationType.GET, docPath);
+      let cur = projectCache.get(pid);
+      if (!cur && (body?.name === undefined || !body?.data?.settings || !Array.isArray(body?.data?.columns))) {
+        let existingSnap;
+        try {
+          existingSnap = await getDoc(doc(db, 'projects', pid));
+        } catch (error) {
+          handleFirestoreError(error, OperationType.GET, docPath);
+        }
+        if (!existingSnap || !existingSnap.exists()) {
+          throw Object.assign(new Error('Proyecto no encontrado'), { status: 404 });
+        }
+        cur = existingSnap.data();
       }
-      if (!existingSnap || !existingSnap.exists()) {
-        throw Object.assign(new Error('Proyecto no encontrado'), { status: 404 });
-      }
-      const cur = existingSnap.data();
-      const nextName = body?.name !== undefined ? clampStr(body.name, 150, 'Sin título') || 'Sin título' : cur.name;
-      const nextSettings = body?.data?.settings && typeof body.data.settings === 'object' ? body.data.settings : cur.settings;
+      const nextName =
+        body?.name !== undefined ? clampStr(body.name, 150, 'Sin título') || 'Sin título' : cur?.name || 'Sin título';
+      const nextSettings =
+        body?.data?.settings && typeof body.data.settings === 'object'
+          ? body.data.settings
+          : cur?.settings || { ...DEFAULTS };
       const nextColumns =
         Array.isArray(body?.data?.columns) && body.data.columns.length > 0
           ? body.data.columns.slice(0, 20)
-          : cur.columns;
+          : cur?.columns || M.defaultProject().columns;
       const nextClientId =
-        body?.client_id !== undefined ? clampStr(body.client_id || '', 128, '') : cur.clientId || '';
+        body?.client_id !== undefined ? clampStr(body.client_id || '', 128, '') : cur?.clientId || '';
+
+      const updatePayload = {
+        name: nextName,
+        settings: nextSettings,
+        columns: nextColumns,
+        updatedAt: serverTimestamp(),
+      };
+      if (body?.client_id !== undefined || cur?.clientId !== undefined) {
+        updatePayload.clientId = nextClientId;
+      }
 
       try {
-        await updateDoc(doc(db, 'projects', pid), {
+        await updateDoc(doc(db, 'projects', pid), updatePayload);
+        projectCache.set(pid, {
+          ...(cur || {}),
           name: nextName,
           settings: nextSettings,
           columns: nextColumns,
           clientId: nextClientId,
-          updatedAt: serverTimestamp(),
+          updatedAt: Date.now(),
         });
         return {
           id: pid,
@@ -543,6 +594,7 @@ export async function handleFirestoreApi(method, url, body) {
     if (method === 'DELETE') {
       try {
         await deleteDoc(doc(db, 'projects', pid));
+        projectCache.delete(pid);
         return { ok: true };
       } catch (error) {
         handleFirestoreError(error, OperationType.DELETE, docPath);
@@ -557,7 +609,7 @@ export async function handleFirestoreApi(method, url, body) {
       const snap = await getDocs(q);
       return snap.docs.map((d) => {
         const c = d.data();
-        return {
+        const item = {
           id: d.id,
           name: c.name,
           tax_id: c.taxId || '',
@@ -566,6 +618,8 @@ export async function handleFirestoreApi(method, url, body) {
           address: c.address || '',
           created_at: tsToMs(c.createdAt),
         };
+        clientsCache.set(d.id, item);
+        return item;
       });
     } catch (error) {
       handleFirestoreError(error, OperationType.LIST, 'clients');
@@ -592,7 +646,7 @@ export async function handleFirestoreApi(method, url, body) {
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-      return {
+      const item = {
         id: clientId,
         name: safeName,
         tax_id: safeTaxId,
@@ -601,6 +655,8 @@ export async function handleFirestoreApi(method, url, body) {
         address: safeAddress,
         created_at: Date.now(),
       };
+      clientsCache.set(clientId, item);
+      return item;
     } catch (error) {
       handleFirestoreError(error, OperationType.CREATE, `clients/${clientId}`);
     }
