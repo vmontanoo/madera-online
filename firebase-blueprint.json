@@ -227,6 +227,41 @@
         }
       },
       "required": ["ownerId", "projectId", "clientId", "seq", "quoteNumber", "total", "currency", "status", "createdAt", "updatedAt"]
+    },
+    "CatalogPricing": {
+      "title": "CatalogPricing",
+      "description": "Global material and hardware unit costs managed exclusively by authorized administrators",
+      "type": "object",
+      "properties": {
+        "updatedBy": {
+          "type": "string",
+          "description": "Firebase Auth UID of the administrator who updated the catalog",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "updatedByEmail": {
+          "type": "string",
+          "description": "Verified email address of the administrator",
+          "minLength": 3,
+          "maxLength": 254
+        },
+        "prices": {
+          "type": "object",
+          "description": "Map of default material and hardware unit prices and currency"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": ["updatedBy", "updatedByEmail", "prices", "createdAt", "updatedAt"]
     }
   },
   "firestore": {
@@ -249,6 +284,10 @@
     "/quotes/{quoteId}": {
       "schema": { "$ref": "#/entities/QuoteRecord" },
       "description": "Correlative quotes generated for furniture projects"
+    },
+    "/catalog/{docId}": {
+      "schema": { "$ref": "#/entities/CatalogPricing" },
+      "description": "Global material and hardware cost catalog managed by administrators"
     }
   }
 }

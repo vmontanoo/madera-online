@@ -89,6 +89,22 @@ async function testConnection() {
 let authReadyPromise = null;
 const projectCache = new Map();
 const clientsCache = new Map();
+let catalogPricingCache = null;
+
+export const ADMIN_EMAILS = [
+  'vicentemontano59@gmail.com',
+  'vicentemontano@gmail.com',
+  'dajuscamuebles@gmail.com',
+];
+
+export function isAuthorizedAdmin(userOrEmail) {
+  const rawEmail =
+    typeof userOrEmail === 'string'
+      ? userOrEmail
+      : userOrEmail?.email || auth?.currentUser?.email || '';
+  const email = String(rawEmail).trim().toLowerCase();
+  return ADMIN_EMAILS.includes(email);
+}
 
 if (isBrowser && auth) {
   setTimeout(testConnection, 1200);
@@ -265,6 +281,97 @@ export async function handleFirestoreApi(method, url, body) {
     return { ok: true };
   }
 
+  // Global Admin Material & Hardware Cost Catalog (/catalog/pricing)
+  if (path === '/api/admin/pricing') {
+    const docRef = doc(db, 'catalog', 'pricing');
+    const docPath = 'catalog/pricing';
+    if (method === 'GET') {
+      if (catalogPricingCache) return catalogPricingCache;
+      try {
+        const snap = await getDoc(docRef);
+        if (snap && snap.exists()) {
+          const d = snap.data();
+          catalogPricingCache = {
+            prices: { ...DEFAULTS, ...(d.prices || {}) },
+            updatedByEmail: d.updatedByEmail || '',
+            updatedAt: tsToMs(d.updatedAt),
+          };
+          return catalogPricingCache;
+        }
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, docPath);
+      }
+      return {
+        prices: { ...DEFAULTS },
+        updatedByEmail: '',
+        updatedAt: null,
+      };
+    }
+    if (method === 'PUT' || method === 'POST') {
+      if (!isAuthorizedAdmin(fbUser)) {
+        throw Object.assign(new Error('No tienes permisos de administrador para modificar los costos.'), {
+          status: 403,
+        });
+      }
+      const incomingPrices = body?.prices && typeof body.prices === 'object' ? body.prices : {};
+      const sanitizedPrices = {};
+      Object.keys(DEFAULTS).forEach((k) => {
+        if (incomingPrices[k] !== undefined) {
+          if (typeof DEFAULTS[k] === 'string') {
+            sanitizedPrices[k] = clampStr(incomingPrices[k], 16, DEFAULTS[k]);
+          } else {
+            const num = Number(incomingPrices[k]);
+            if (Number.isFinite(num) && num >= 0) {
+              sanitizedPrices[k] = num;
+            }
+          }
+        }
+      });
+      if (sanitizedPrices.slidePrice !== undefined) sanitizedPrices.priceSlide = sanitizedPrices.slidePrice;
+      if (sanitizedPrices.hingePrice !== undefined) sanitizedPrices.priceHinge = sanitizedPrices.hingePrice;
+      const safeEmail = clampStr(fbUser.email || 'admin@dajusca.app', 254, 'admin@dajusca.app');
+
+      let existsAlready = false;
+      try {
+        const snap = await getDoc(docRef);
+        existsAlready = Boolean(snap && snap.exists());
+      } catch (error) {
+        handleFirestoreError(error, OperationType.GET, docPath);
+      }
+
+      try {
+        if (!existsAlready) {
+          await setDoc(docRef, {
+            updatedBy: uid,
+            updatedByEmail: safeEmail,
+            prices: sanitizedPrices,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          await updateDoc(docRef, {
+            updatedBy: uid,
+            updatedByEmail: safeEmail,
+            prices: sanitizedPrices,
+            updatedAt: serverTimestamp(),
+          });
+        }
+        catalogPricingCache = {
+          prices: { ...DEFAULTS, ...sanitizedPrices },
+          updatedByEmail: safeEmail,
+          updatedAt: Date.now(),
+        };
+        return catalogPricingCache;
+      } catch (error) {
+        handleFirestoreError(
+          error,
+          existsAlready ? OperationType.UPDATE : OperationType.CREATE,
+          docPath
+        );
+      }
+    }
+  }
+
   // Projects collection (/projects)
   if (method === 'GET' && path === '/api/projects') {
     const q = query(collection(db, 'projects'), where('ownerId', '==', uid));
@@ -301,7 +408,11 @@ export async function handleFirestoreApi(method, url, body) {
     const rawData = body?.data || M.defaultProject();
     const safeName = clampStr(body?.name || 'Sin título', 150, 'Sin título') || 'Sin título';
     const safeClientId = clampStr(body?.client_id || '', 128, '');
-    const safeSettings = rawData?.settings && typeof rawData.settings === 'object' ? rawData.settings : { ...DEFAULTS };
+    const baseDefaults = catalogPricingCache?.prices ? { ...DEFAULTS, ...catalogPricingCache.prices } : { ...DEFAULTS };
+    const safeSettings =
+      rawData?.settings && typeof rawData.settings === 'object'
+        ? { ...baseDefaults, ...rawData.settings, ...(catalogPricingCache?.prices || {}) }
+        : baseDefaults;
     const safeColumns = Array.isArray(rawData?.columns) && rawData.columns.length > 0 ? rawData.columns.slice(0, 20) : M.defaultProject().columns;
 
     const docPath = `projects/${projectId}`;

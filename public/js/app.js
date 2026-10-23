@@ -10,7 +10,11 @@ import {
   loginWithEmailFirebase,
   formatFirebaseUser,
   handleFirestoreApi,
+  ADMIN_EMAILS,
+  isAuthorizedAdmin,
 } from './firebase-cloud.js';
+
+export { ADMIN_EMAILS, isAuthorizedAdmin };
 
 export const VALID_NEW_TYPES = ['shelf', 'drawer', 'rail'];
 
@@ -246,6 +250,45 @@ function handleLocalApi(method, url, body) {
     return c;
   }
 
+  // Admin Pricing Catalog routes
+  if (path === '/api/admin/pricing') {
+    if (method === 'GET') {
+      return {
+        prices: { ...DEFAULTS, ...(store.catalogPricing?.prices || {}) },
+        updatedByEmail: store.catalogPricing?.updatedByEmail || '',
+        updatedAt: store.catalogPricing?.updatedAt || null,
+      };
+    }
+    if (method === 'PUT' || method === 'POST') {
+      if (!isAuthorizedAdmin(activeUser)) {
+        throw Object.assign(new Error('No tienes permisos de administrador para modificar los costos.'), {
+          status: 403,
+        });
+      }
+      const incomingPrices = body?.prices && typeof body.prices === 'object' ? body.prices : {};
+      const sanitized = {};
+      Object.keys(DEFAULTS).forEach((k) => {
+        if (incomingPrices[k] !== undefined) {
+          if (typeof DEFAULTS[k] === 'string') {
+            sanitized[k] = String(incomingPrices[k]).trim() || DEFAULTS[k];
+          } else {
+            const num = Number(incomingPrices[k]);
+            if (Number.isFinite(num) && num >= 0) sanitized[k] = num;
+          }
+        }
+      });
+      if (sanitized.slidePrice !== undefined) sanitized.priceSlide = sanitized.slidePrice;
+      if (sanitized.hingePrice !== undefined) sanitized.priceHinge = sanitized.hingePrice;
+      store.catalogPricing = {
+        prices: { ...DEFAULTS, ...sanitized },
+        updatedByEmail: activeUser.email || '',
+        updatedAt: Date.now(),
+      };
+      saveLocalStore(store);
+      return store.catalogPricing;
+    }
+  }
+
   return {};
 }
 
@@ -383,6 +426,9 @@ async function route() {
   const user = await fetchSession();
   if (!user) {
     return authView();
+  }
+  if (location.hash === '#/admin') {
+    return adminView();
   }
   const m = location.hash.match(/^#\/p\/([a-zA-Z0-9_-]+)/);
   if (m) return editorView(m[1]);
@@ -682,6 +728,10 @@ async function listView() {
     `;
   }
 
+  const isAdminUser = isAuthorizedAdmin(currentUser);
+  // Preload catalog pricing in background so new projects inherit admin costs
+  api('GET', '/api/admin/pricing').catch(() => {});
+
   // Mount Dashboard Shell with DOM-Preserved Tab Panes
   $app.innerHTML = `
     <div class="list">
@@ -692,6 +742,7 @@ async function listView() {
         <div class="header-actions">
           <button class="primary" id="new">+ Nuevo mueble</button>
           <button id="importBtn" class="btn-action">Importar archivo</button>
+          ${isAdminUser ? `<button id="adminBtn" class="btn-action btn-admin-nav" title="Panel de costos de materiales y herrajes">⚙ Costos (Admin)</button>` : ''}
           <input type="file" id="importInput" accept=".json,application/json" style="display:none">
           <div class="user-profile-chip" id="userProfileChip">
             ${renderUserAvatar(currentUser, 32)}
@@ -726,6 +777,16 @@ async function listView() {
           Galería de Demos
           <span class="tab-badge" id="badgeDemos">${(DEMOS || []).length}</span>
         </button>
+        ${isAdminUser ? `
+        <button 
+          class="dash-tab" 
+          id="tabAdmin" 
+          role="tab"
+          title="Configurar costos globales de materiales y herrajes"
+        >
+          Panel Administrador
+          <span class="tab-badge">⚙</span>
+        </button>` : ''}
       </div>
 
       <!-- Tab Panes (Both preserved in DOM) -->
@@ -742,8 +803,12 @@ async function listView() {
   // References
   const tabProjects = document.getElementById('tabProjects');
   const tabDemos = document.getElementById('tabDemos');
+  const tabAdmin = document.getElementById('tabAdmin');
+  const adminBtn = document.getElementById('adminBtn');
   const paneProjects = document.getElementById('tabContentProjects');
   const paneDemos = document.getElementById('tabContentDemos');
+  if (tabAdmin) tabAdmin.onclick = () => (location.hash = '#/admin');
+  if (adminBtn) adminBtn.onclick = () => (location.hash = '#/admin');
 
   // Tab Switching Handler (Instantaneous DOM Preservation)
   function switchTab(target) {
@@ -964,6 +1029,243 @@ async function listView() {
   }
 }
 
+/* ---------------- Panel de Administrador (Costos de Materiales y Herrajes) ---------------- */
+async function adminView() {
+  const isAdmin = isAuthorizedAdmin(currentUser);
+  if (!isAdmin) {
+    $app.innerHTML = `
+      <div class="list">
+        <header class="list-header">
+          <div class="brand-row">
+            <h2 style="margin:0">Dajusca.app · Administración</h2>
+          </div>
+          <div class="header-actions">
+            <button id="backDash" class="btn-action">← Volver a Mis Proyectos</button>
+          </div>
+        </header>
+        <div class="empty-state">
+          <div class="empty-icon">🔒</div>
+          <h3>Acceso restringido a Administradores</h3>
+          <p class="muted">La cuenta actual (<b>${esc(currentUser?.email || 'sin correo')}</b>) no tiene permisos de administrador. Solo las cuentas autorizadas (<b>vicentemontano59@gmail.com</b> y <b>dajuscamuebles@gmail.com</b>) pueden modificar el catálogo global de costos de materiales y herrajes.</p>
+          <div style="margin-top:16px">
+            <button id="backDashBtn" class="primary">Volver al Panel Principal</button>
+          </div>
+        </div>
+      </div>
+    `;
+    const goBack = () => (location.hash = '#/');
+    document.getElementById('backDash')?.addEventListener('click', goBack);
+    document.getElementById('backDashBtn')?.addEventListener('click', goBack);
+    return;
+  }
+
+  let catalogRes = { prices: { ...DEFAULTS }, updatedByEmail: '', updatedAt: null };
+  try {
+    const fetched = await api('GET', '/api/admin/pricing');
+    if (fetched && fetched.prices) catalogRes = fetched;
+  } catch {}
+
+  const p = { ...DEFAULTS, ...(catalogRes.prices || {}) };
+  const lastUpdatedText = catalogRes.updatedAt
+    ? `Última actualización: ${new Date(catalogRes.updatedAt).toLocaleString()}${catalogRes.updatedByEmail ? ` por ${esc(catalogRes.updatedByEmail)}` : ''}`
+    : 'Mostrando costos base por defecto';
+
+  const MATERIAL_FIELDS = [
+    ['currency', 'Moneda del sistema', '', 'Símbolo monetario (ej. $, USD, Bs, €)', 'text'],
+    ['priceCarcass', 'Tablero Carcasa / Estructura', '/ m²', 'Laterales, divisiones internas, piso y techo', 'number'],
+    ['priceFront', 'Tablero Frentes y Puertas', '/ m²', 'Puertas batientes, corredizas, plegables y frentes de gaveta', 'number'],
+    ['priceBack', 'Tablero de Fondo (Trasera)', '/ m²', 'Panel trasero del mueble', 'number'],
+    ['priceDrawer', 'Tablero Caja de Gaveta', '/ m²', 'Costados, frente interno, trasera y piso de gavetas', 'number'],
+    ['thickness', 'Espesor estándar de paneles', 'mm', 'Espesor por defecto para estructura y puertas', 'number'],
+    ['backThickness', 'Espesor estándar del fondo', 'mm', 'Espesor por defecto del panel trasero', 'number'],
+    ['drawerThickness', 'Espesor caja de gaveta', 'mm', 'Espesor de laterales internos de gaveta', 'number'],
+    ['drawerBottomThickness', 'Espesor fondo de gaveta', 'mm', 'Espesor del piso de gaveta', 'number'],
+  ];
+
+  const HARDWARE_FIELDS = [
+    ['hingePrice', 'Bisagra estándar (cazoleta)', '/ unidad', 'Para puertas batientes y abatibles', 'number'],
+    ['slidePrice', 'Corredera telescópica (par)', '/ par', 'Un par por cada gaveta', 'number'],
+    ['pricePullBar', 'Manilla de barra', '/ unidad', 'Tirador metálico de 2 perforaciones', 'number'],
+    ['pricePullKnob', 'Pomo tirador', '/ unidad', 'Tirador puntual de 1 perforación', 'number'],
+    ['pricePullProfile', 'Perfil tirador / Gola aluminio', '/ unidad', 'Perfil continuo sin perforación', 'number'],
+    ['priceRail', 'Tubo / Barra de perchero', '/ metro lineal', 'Barra cromada o aluminio para colgar ropa', 'number'],
+    ['priceRailBracket', 'Soporte lateral de perchero', '/ unidad', '2 soportes por cada barra de perchero', 'number'],
+    ['slidingTrackPrice', 'Kit de rieles puertas corredizas', '/ juego', 'Riel superior/inferior y carros rodantes', 'number'],
+    ['bifoldHingePrice', 'Bisagra para puerta plegable', '/ unidad', 'Bisagras articuladas para puerta acordeón', 'number'],
+    ['bifoldGuidePrice', 'Guía corrediza puerta plegable', '/ unidad', 'Carro y guía superior para puerta plegable', 'number'],
+    ['gasStrutPrice', 'Pistón amortiguador a gas', '/ unidad', 'Para puertas abatibles superiores (2 por puerta)', 'number'],
+  ];
+
+  const renderFieldCard = ([key, label, unit, desc, type]) => `
+    <div class="admin-field-card">
+      <div class="admin-field-info">
+        <label class="admin-field-label" for="adm_${key}">${esc(label)}</label>
+        <span class="admin-field-desc muted">${esc(desc)}</span>
+      </div>
+      <div class="admin-field-input-wrap">
+        <input
+          id="adm_${key}"
+          data-admin-key="${key}"
+          type="${type}"
+          ${type === 'number' ? 'step="0.01" min="0"' : ''}
+          value="${esc(p[key] ?? DEFAULTS[key])}"
+          class="admin-input"
+        >
+        ${unit ? `<span class="admin-unit">${esc(unit)}</span>` : ''}
+      </div>
+    </div>
+  `;
+
+  $app.innerHTML = `
+    <div class="list admin-page">
+      <header class="list-header">
+        <div class="brand-row">
+          <h2 style="margin:0">Dajusca · Panel de Administrador</h2>
+          <span class="muted" style="font-size:12px">${lastUpdatedText}</span>
+        </div>
+        <div class="header-actions">
+          <button id="backToProjects" class="btn-action">← Volver a Proyectos</button>
+          <div class="user-profile-chip">
+            ${renderUserAvatar(currentUser, 30)}
+            <div class="user-profile-info">
+              <span class="user-name">${esc(currentUser?.name || 'Admin')}</span>
+              <span class="user-email muted">${esc(currentUser?.email || '')}</span>
+            </div>
+          </div>
+        </div>
+      </header>
+
+      <div class="admin-banner">
+        <div>
+          <strong>Catálogo Maestro de Costos de Materiales y Herrajes</strong>
+          <p class="muted" style="margin:4px 0 0 0;font-size:13px">
+            Los valores guardados aquí se sincronizan en la nube (Firebase) y se aplican automáticamente a los nuevos muebles y presupuestos PDF de Dajusca.
+            Administradores autorizados: <code>vicentemontano59@gmail.com</code> · <code>dajuscamuebles@gmail.com</code>
+          </p>
+        </div>
+      </div>
+
+      <div id="adminStatusMsg" class="admin-status-msg" style="display:none"></div>
+
+      <div class="admin-sections-grid">
+        <section class="admin-section-card">
+          <div class="admin-section-header">
+            <h3>1. Tableros, Melamina y Espesores</h3>
+            <span class="muted">Costos por metro cuadrado (m²) y espesores base</span>
+          </div>
+          <div class="admin-fields-list">
+            ${MATERIAL_FIELDS.map(renderFieldCard).join('')}
+          </div>
+        </section>
+
+        <section class="admin-section-card">
+          <div class="admin-section-header">
+            <h3>2. Herrajes, Tiradores y Sistemas</h3>
+            <span class="muted">Costos unitarios de accesorios para cotizaciones</span>
+          </div>
+          <div class="admin-fields-list">
+            ${HARDWARE_FIELDS.map(renderFieldCard).join('')}
+          </div>
+        </section>
+      </div>
+
+      <div class="admin-footer-actions">
+        <button id="btnResetDefaults" type="button" class="btn-action">Restaurar valores por defecto</button>
+        <div class="admin-primary-btns">
+          <button id="btnSaveAndApplyAll" type="button" class="btn-action" title="Guarda el catálogo y actualiza también los costos en tus proyectos ya creados">
+            Guardar y aplicar a mis proyectos actuales
+          </button>
+          <button id="btnSaveCatalog" type="button" class="primary">
+            Guardar Costos en el Catálogo
+          </button>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('backToProjects').onclick = () => (location.hash = '#/');
+
+  const statusBox = document.getElementById('adminStatusMsg');
+  const showStatus = (msg, isError = false) => {
+    if (!statusBox) return;
+    statusBox.style.display = 'block';
+    statusBox.className = `admin-status-msg ${isError ? 'err-box' : 'ok-box'}`;
+    statusBox.textContent = msg;
+  };
+
+  const collectPricesFromInputs = () => {
+    const out = {};
+    document.querySelectorAll('input[data-admin-key]').forEach((inp) => {
+      const k = inp.dataset.adminKey;
+      if (typeof DEFAULTS[k] === 'string') {
+        out[k] = inp.value.trim() || DEFAULTS[k];
+      } else {
+        const val = parseFloat(inp.value);
+        out[k] = Number.isFinite(val) && val >= 0 ? val : DEFAULTS[k];
+      }
+    });
+    if (out.slidePrice !== undefined) out.priceSlide = out.slidePrice;
+    if (out.hingePrice !== undefined) out.priceHinge = out.hingePrice;
+    return out;
+  };
+
+  document.getElementById('btnResetDefaults').onclick = () => {
+    document.querySelectorAll('input[data-admin-key]').forEach((inp) => {
+      const k = inp.dataset.adminKey;
+      inp.value = DEFAULTS[k];
+    });
+    showStatus('Valores restaurados en pantalla. Pulsa "Guardar Costos en el Catálogo" para confirmar.');
+  };
+
+  document.getElementById('btnSaveCatalog').onclick = async () => {
+    const btn = document.getElementById('btnSaveCatalog');
+    try {
+      btn.disabled = true;
+      btn.textContent = 'Guardando en la nube...';
+      const prices = collectPricesFromInputs();
+      await api('PUT', '/api/admin/pricing', { prices });
+      Object.assign(DEFAULTS, prices);
+      showStatus('Costos de materiales y herrajes guardados correctamente en el catálogo.');
+    } catch (err) {
+      showStatus(err.message || 'Error al guardar los costos.', true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Guardar Costos en el Catálogo';
+    }
+  };
+
+  document.getElementById('btnSaveAndApplyAll').onclick = async () => {
+    const btn = document.getElementById('btnSaveAndApplyAll');
+    try {
+      btn.disabled = true;
+      btn.textContent = 'Actualizando proyectos...';
+      const prices = collectPricesFromInputs();
+      await api('PUT', '/api/admin/pricing', { prices });
+      Object.assign(DEFAULTS, prices);
+
+      const projectsList = await api('GET', '/api/projects').catch(() => []);
+      await Promise.all(
+        projectsList.map((proj) => {
+          const updatedData = {
+            ...proj.data,
+            settings: {
+              ...(proj.data?.settings || {}),
+              ...prices,
+            },
+          };
+          return api('PUT', `/api/projects/${proj.id}`, { name: proj.name, data: updatedData });
+        })
+      );
+      showStatus(`Catálogo guardado y costos actualizados en ${projectsList.length} proyecto(s).`);
+    } catch (err) {
+      showStatus(err.message || 'Error al actualizar los proyectos.', true);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Guardar y aplicar a mis proyectos actuales';
+    }
+  };
+}
+
 /* ---------------- 2D Canvas & Editor Math Helpers ---------------- */
 export function calculateTopBorderDrag(startH, deltaH, thickness = 18, childCount = 1) {
   const childMin = 2 * thickness + childCount * 50 + (childCount - 1) * thickness;
@@ -1085,6 +1387,7 @@ async function editorView(id) {
     project: M.normalizeProject(rec.data.columns ? rec.data : M.defaultProject()),
     selected: null,
     tab: 'design',
+    mobilePane: 'split', // 'split' | '2d' | '3d'
     newType: 'drawer',
     cutSel: null,
     showMach: true,
@@ -1095,11 +1398,16 @@ async function editorView(id) {
   let layout = null;
   let saveTimer = null;
 
-  $app.innerHTML = `<div class="editor">
+  $app.innerHTML = `<div class="editor" data-mobile-pane="split">
     <div class="left">
       <div class="topbar">
-        <div class="pill"><button id="back">←</button><input id="name" style="background:transparent;border:none;width:150px" value="${esc(state.name)}"><button id="cfg">⚙</button></div>
+        <div class="pill topbar-nav-pill"><button id="back" title="Volver">←</button><input id="name" style="background:transparent;border:none;width:150px" value="${esc(state.name)}"><button id="cfg" title="Ajustes del proyecto">⚙</button></div>
         <div class="pill"><button data-tab="design" class="on">Diseño</button><button data-tab="cutlist">Cutlist</button></div>
+        <div class="pill mobile-view-switch" id="mobileViewSwitch" title="Cambiar vista en pantallas móviles">
+          <button type="button" data-mpane="split" class="on">2D+3D</button>
+          <button type="button" data-mpane="2d">2D</button>
+          <button type="button" data-mpane="3d">3D</button>
+        </div>
         <span class="price" id="price"></span>
         <div class="editor-user-badge" title="${esc(currentUser?.name || '')} (${esc(currentUser?.email || '')})">
           ${renderUserAvatar(currentUser, 28)}
@@ -1120,8 +1428,16 @@ async function editorView(id) {
       <div class="cards" id="cards" style="display:none"></div>
     </div>
   </div>`;
-  viewer = new Viewer(document.getElementById('vwr'));
+  const vwrEl = document.getElementById('vwr');
+  viewer = new Viewer(vwrEl);
   viewer.resize();
+  let vwrResizeObserver = null;
+  if (typeof ResizeObserver !== 'undefined' && vwrEl) {
+    vwrResizeObserver = new ResizeObserver(() => {
+      if (viewer && state.tab !== 'cutlist') viewer.resize();
+    });
+    vwrResizeObserver.observe(vwrEl);
+  }
   const $ = (s) => document.querySelector(s);
 
   const save = () => {
@@ -1345,6 +1661,32 @@ async function editorView(id) {
 
         window.addEventListener('mousemove', onMouseMove);
         window.addEventListener('mouseup', onMouseUp);
+      };
+
+      // Soporte táctil (Touch) para pantallas móviles y tablets
+      handle.ontouchstart = (te) => {
+        if (!te.touches || !te.touches[0]) return;
+        const t0 = te.touches[0];
+        handle.onmousedown({
+          clientX: t0.clientX,
+          clientY: t0.clientY,
+          preventDefault: () => te.preventDefault(),
+          stopPropagation: () => te.stopPropagation(),
+        });
+        const onTouchMove = (tm) => {
+          if (!tm.touches || !tm.touches[0]) return;
+          const t = tm.touches[0];
+          window.dispatchEvent(new MouseEvent('mousemove', { clientX: t.clientX, clientY: t.clientY }));
+        };
+        const onTouchEnd = () => {
+          window.removeEventListener('touchmove', onTouchMove);
+          window.removeEventListener('touchend', onTouchEnd);
+          window.removeEventListener('touchcancel', onTouchEnd);
+          window.dispatchEvent(new MouseEvent('mouseup'));
+        };
+        window.addEventListener('touchmove', onTouchMove, { passive: false });
+        window.addEventListener('touchend', onTouchEnd);
+        window.addEventListener('touchcancel', onTouchEnd);
       };
     });
   }
@@ -1636,6 +1978,7 @@ async function editorView(id) {
 
       <div class="cutlist-section">
         <h3>Tabla de cortes (Desglose de paneles)</h3>
+        <div class="table-scroll">
         <table class="cutlist-table" id="cutlistTable">
           <thead>
             <tr>
@@ -1672,10 +2015,12 @@ async function editorView(id) {
             </tr>
           </tfoot>
         </table>
+        </div>
       </div>
 
       <div class="hardware-section">
         <h3>Desglose de herrajes</h3>
+        <div class="table-scroll">
         <table class="hardware-table" id="hardwareTable">
           <thead>
             <tr>
@@ -1702,11 +2047,13 @@ async function editorView(id) {
             </tr>
           </tfoot>
         </table>
+        </div>
       </div>
 
       <div class="machining-section" id="machiningSection" style="${state.showMach ? '' : 'display:none'}">
         <h3>Desglose de mecanizados y operaciones</h3>
         <p class="muted mach-note">rail-cut = ranura para encajar fondo o piso de gaveta · through-hole = perforación pasante para tiradores.</p>
+        <div class="table-scroll">
         <table class="machining-table" id="machiningTable">
           <thead>
             <tr>
@@ -1733,6 +2080,7 @@ async function editorView(id) {
             </tr>
           </tfoot>
         </table>
+        </div>
       </div>
 
       <div class="print-grand-total">
@@ -2191,18 +2539,14 @@ async function editorView(id) {
   const cardHtml = (r) =>
     `<div class="pcard" data-id="${r.id}">${pieceSvg(r, false)}<div class="pmeta"><span class="pid">${r.id}</span><span class="qty">×${r.qty}</span></div></div>`;
 
-  function refresh(isDragging = false) {
+  function refresh() {
     layout = computeLayout(state.project);
     $('#price').textContent = fmtMoney(layout.cutlist.total);
     viewer.update(layout, new Set(state.selected ? collectIds(state.selected) : []));
-    if (!isDragging || state.tab === 'cutlist') {
-      drawCutlist();
-    }
+    if (!arguments[0] || state.tab === 'cutlist') drawCutlist();
     if (state.tab === 'design') {
       drawCanvas();
-      if (!isDragging) {
-        drawDock();
-      }
+      if (!arguments[0]) drawDock();
     }
   }
   function collectIds(id) {
@@ -2267,8 +2611,21 @@ async function editorView(id) {
       $('#cards').style.display = state.tab === 'cutlist' ? 'block' : 'none';
       $('#vwr').style.display = state.tab === 'cutlist' ? 'none' : 'block';
       document.querySelector('.rtools').style.display = state.tab === 'cutlist' ? 'none' : 'flex';
+      const mSwitch = $('#mobileViewSwitch');
+      if (mSwitch) mSwitch.style.display = state.tab === 'cutlist' ? 'none' : '';
+      const ed = document.querySelector('.editor');
+      if (ed) ed.dataset.mobilePane = state.tab === 'cutlist' ? 'cutlist' : state.mobilePane;
       if (state.tab !== 'cutlist') viewer.resize();
       refresh();
+    };
+  });
+  document.querySelectorAll('[data-mpane]').forEach((btn) => {
+    btn.onclick = () => {
+      state.mobilePane = btn.dataset.mpane;
+      document.querySelectorAll('[data-mpane]').forEach((x) => x.classList.toggle('on', x === btn));
+      const ed = document.querySelector('.editor');
+      if (ed && state.tab === 'design') ed.dataset.mobilePane = state.mobilePane;
+      setTimeout(() => viewer?.resize(), 50);
     };
   });
   $('#explode').oninput = (e) => viewer.setExplode(parseFloat(e.target.value));
@@ -2300,6 +2657,7 @@ async function editorView(id) {
   cleanup = () => {
     window.removeEventListener('keydown', onKey);
     clearTimeout(saveTimer);
+    vwrResizeObserver?.disconnect();
     viewer?.destroy();
     viewer = null;
   };

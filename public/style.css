@@ -1237,21 +1237,509 @@ svg .drag-handle.col-top-handle { cursor: ns-resize; }
   .viewer-toolbar {
     top: 8px;
     left: 8px;
-    padding: 3px 5px;
+    right: 8px;
+    max-width: calc(100% - 16px);
+    overflow-x: auto;
+    padding: 4px 6px;
     gap: 4px;
+    -webkit-overflow-scrolling: touch;
   }
   .viewer-toolbar .viewer-btn,
   .viewer-toolbar .vbtn {
-    font-size: 10px;
-    padding: 4px 8px;
+    font-size: 11px;
+    padding: 5px 9px;
   }
 }
 
 @media print {
   .viewer-toolbar,
-  .vwr {
+  .vwr,
+  .mobile-view-switch {
     display: none !important;
   }
+  .table-scroll {
+    overflow: visible !important;
+  }
 }
+
+/* ==========================================================================
+   Milestone 5: Admin Cost Management & Full Responsive Design (Mobile/Tablet/Desktop)
+   ========================================================================== */
+
+.mobile-view-switch {
+  display: none;
+}
+
+.table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.btn-admin-nav {
+  border-color: rgba(255, 184, 0, 0.45);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.btn-admin-nav:hover {
+  background: rgba(255, 184, 0, 0.14);
+}
+
+/* Admin Page Styles */
+.admin-page {
+  max-width: 1120px;
+}
+
+.admin-banner {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 16px 20px;
+  margin-bottom: 18px;
+}
+
+.admin-banner code {
+  background: var(--panel2);
+  color: var(--accent);
+  padding: 2px 6px;
+  border-radius: 5px;
+  font-size: 12px;
+}
+
+.admin-status-msg {
+  padding: 12px 16px;
+  border-radius: 10px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.admin-status-msg.ok-box {
+  background: rgba(22, 163, 74, 0.16);
+  border: 1px solid #22c55e;
+  color: #86efac;
+}
+
+.admin-status-msg.err-box {
+  background: rgba(229, 72, 77, 0.16);
+  border: 1px solid var(--danger);
+  color: #ff8282;
+}
+
+.admin-sections-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 20px;
+  margin-bottom: 20px;
+}
+
+.admin-section-card {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.admin-section-header h3 {
+  margin: 0 0 4px 0;
+  font-size: 16px;
+  color: var(--accent);
+}
+
+.admin-section-header span {
+  font-size: 12px;
+}
+
+.admin-fields-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.admin-field-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--panel2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.admin-field-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+}
+
+.admin-field-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text);
+}
+
+.admin-field-desc {
+  font-size: 11px;
+  line-height: 1.3;
+}
+
+.admin-field-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.admin-input {
+  width: 96px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--accent);
+  background: #171514;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 7px 10px;
+}
+
+.admin-unit {
+  font-size: 11px;
+  color: var(--muted);
+  min-width: 58px;
+}
+
+.admin-footer-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  padding: 14px 20px;
+  flex-wrap: wrap;
+}
+
+.admin-primary-btns {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+/* ==========================================================================
+   Responsive Media Queries (Tablet <= 960px, Mobile <= 640px, Small <= 480px)
+   ========================================================================== */
+
+@media (max-width: 960px) {
+  html, body, #app {
+    height: auto;
+    min-height: 100dvh;
+  }
+
+  .list {
+    padding: 20px 16px;
+  }
+
+  .list-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 14px;
+  }
+
+  .brand-row {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+  }
+
+  .header-actions {
+    flex-wrap: wrap;
+    justify-content: flex-start;
+    gap: 8px;
+  }
+
+  .user-profile-chip {
+    margin-left: auto;
+  }
+
+  .admin-sections-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Responsive Editor Layout */
+  .editor {
+    flex-direction: column;
+    height: auto;
+    min-height: 100dvh;
+    overflow-x: hidden;
+  }
+
+  .left {
+    width: 100%;
+    min-width: 0;
+    flex: none;
+  }
+
+  .right {
+    width: 100%;
+    min-width: 0;
+    min-height: 380px;
+    height: 48dvh;
+    flex: none;
+    border-top: 1px solid var(--line);
+  }
+
+  .topbar {
+    flex-wrap: wrap;
+    gap: 8px;
+    padding: 10px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  }
+
+  .topbar-nav-pill {
+    flex: 1 1 200px;
+  }
+
+  .topbar-nav-pill #name {
+    width: 100% !important;
+    min-width: 90px;
+    flex: 1;
+  }
+
+  .mobile-view-switch {
+    display: flex;
+  }
+
+  .canvas {
+    height: 38dvh;
+    min-height: 250px;
+    max-height: 420px;
+  }
+
+  /* Mobile Pane Switching in Design Mode */
+  .editor[data-mobile-pane="2d"] .right {
+    display: none !important;
+  }
+  .editor[data-mobile-pane="2d"] .canvas {
+    height: 52dvh;
+    min-height: 300px;
+  }
+
+  .editor[data-mobile-pane="3d"] #designPane {
+    display: none !important;
+  }
+  .editor[data-mobile-pane="3d"] .right {
+    height: calc(100dvh - 64px);
+    min-height: 440px;
+    border-top: none;
+  }
+
+  /* Cutlist Mode on Tablet/Mobile */
+  .editor[data-mobile-pane="cutlist"] .right {
+    height: auto;
+    min-height: 280px;
+  }
+  .editor[data-mobile-pane="cutlist"] .cards {
+    position: static;
+    overflow: visible;
+  }
+
+  /* Position 3D Explosion Controls at Bottom on Mobile/Tablet so they never overlap top toolbar */
+  .rtools {
+    top: auto;
+    bottom: 12px;
+    right: 12px;
+    left: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
+    background: rgba(24, 24, 27, 0.88);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    border: 1px solid rgba(255, 255, 255, 0.14);
+  }
+}
+
+@media (max-width: 640px) {
+  .auth-wrapper {
+    padding: 14px;
+    min-height: 100dvh;
+  }
+
+  .auth-card {
+    padding: 24px 18px;
+    border-radius: 16px;
+  }
+
+  .dash-tabs {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+    padding-bottom: 8px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .dash-tab {
+    white-space: nowrap;
+    flex-shrink: 0;
+    padding: 8px 14px;
+    font-size: 13px;
+  }
+
+  .proj {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    padding: 14px;
+  }
+
+  .proj-actions {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+    width: 100%;
+  }
+
+  .proj-actions .btn-action {
+    text-align: center;
+    padding: 8px 10px;
+    min-height: 38px;
+  }
+
+  .header-actions {
+    width: 100%;
+  }
+
+  .header-actions > button {
+    flex: 1 1 auto;
+    min-height: 40px;
+  }
+
+  .user-profile-chip {
+    width: 100%;
+    justify-content: space-between;
+    margin-left: 0;
+    padding: 6px 10px;
+  }
+
+  .user-name,
+  .user-email {
+    max-width: 190px;
+  }
+
+  /* 2x2 Grid for Global Stats in Dock on Mobile */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 8px;
+  }
+
+  .stat input {
+    font-size: 20px;
+  }
+
+  .dock {
+    margin: 8px;
+    padding: 12px;
+    border-radius: 16px;
+  }
+
+  .subdiv-buttons {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 6px;
+  }
+
+  .tier-2-actions {
+    flex-wrap: wrap;
+  }
+
+  .btn-tier2 {
+    min-height: 38px;
+  }
+
+  /* Cutlist Action Buttons & Tables on Mobile */
+  #cutlist {
+    padding: 10px;
+  }
+
+  #cutlist .btns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px !important;
+  }
+
+  #cutlist .btns #pdfQuote,
+  #cutlist .btns #genQuote,
+  #cutlist .btns #clientSelect,
+  #cutlist .btns label {
+    grid-column: 1 / -1;
+    max-width: 100% !important;
+    width: 100%;
+  }
+
+  #cutlist .btns button,
+  #cutlist .btns select {
+    min-height: 40px;
+  }
+
+  /* Modals on Mobile */
+  .modal-bg {
+    padding: 12px;
+  }
+
+  .modal {
+    width: 100%;
+    max-width: 100%;
+    max-height: 90dvh;
+    padding: 16px;
+  }
+
+  .modal .row {
+    flex-wrap: wrap;
+  }
+
+  /* Admin Fields on Mobile */
+  .admin-field-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .admin-field-input-wrap {
+    justify-content: flex-end;
+  }
+
+  .admin-input {
+    flex: 1;
+    width: auto;
+  }
+
+  .admin-footer-actions,
+  .admin-primary-btns {
+    flex-direction: column;
+    align-items: stretch;
+    width: 100%;
+  }
+
+  .admin-footer-actions button,
+  .admin-primary-btns button {
+    width: 100%;
+    min-height: 42px;
+  }
+}
+
+@media (max-width: 420px) {
+  .dock-grid-2 {
+    grid-template-columns: 1fr;
+  }
+}
+
 
 

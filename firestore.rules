@@ -107,6 +107,27 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isAdmin() {
+      return isVerified() && (
+        request.auth.token.email in [
+          'vicentemontano59@gmail.com',
+          'vicentemontano@gmail.com',
+          'dajuscamuebles@gmail.com'
+        ]
+      );
+    }
+
+    function isValidCatalogPricing(data) {
+      return data.keys().hasAll(['updatedBy', 'updatedByEmail', 'prices', 'createdAt', 'updatedAt'])
+        && data.keys().hasOnly(['updatedBy', 'updatedByEmail', 'prices', 'createdAt', 'updatedAt'])
+        && isValidId(data.updatedBy)
+        && data.updatedBy == request.auth.uid
+        && data.updatedByEmail is string && data.updatedByEmail.size() >= 3 && data.updatedByEmail.size() <= 254
+        && data.prices is map && data.prices.size() >= 1 && data.prices.size() <= 50
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     // =========================================================================
     // 3. COLLECTION RULES
     // =========================================================================
@@ -115,6 +136,29 @@ service cloud.firestore {
     match /test/connection {
       allow get: if isSignedIn();
       allow list, create, update, delete: if false;
+    }
+
+    // 3.1b Global Material & Hardware Cost Catalog (/catalog/{docId})
+    match /catalog/{docId} {
+      allow get: if isVerified() && isValidId(docId) && docId == 'pricing';
+      allow list: if false;
+
+      allow create: if isAdmin()
+        && isValidId(docId)
+        && docId == 'pricing'
+        && isValidCatalogPricing(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isAdmin()
+        && isValidCatalogPricing(incoming())
+        && isValidId(docId)
+        && docId == 'pricing'
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly(['updatedBy', 'updatedByEmail', 'prices', 'updatedAt']);
+
+      allow delete: if false;
     }
 
     // 3.2 User Public Profile (/users/{userId})
