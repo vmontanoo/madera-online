@@ -18,7 +18,10 @@ service cloud.firestore {
     }
 
     function isVerified() {
-      return isSignedIn() && request.auth.token.email_verified == true;
+      return isSignedIn() && (
+        request.auth.token.email_verified == true
+        || request.auth.token.firebase.sign_in_provider == 'password'
+      );
     }
 
     function incoming() {
@@ -108,13 +111,15 @@ service cloud.firestore {
     }
 
     function isAdmin() {
-      return isVerified() && (
-        request.auth.token.email in [
-          'vicentemontano59@gmail.com',
-          'vicentemontano@gmail.com',
-          'dajuscamuebles@gmail.com'
-        ]
-      );
+      return isSignedIn()
+        && request.auth.token.email_verified == true
+        && (
+          request.auth.token.email in [
+            'vicentemontano59@gmail.com',
+            'vicentemontano@gmail.com',
+            'dajuscamuebles@gmail.com'
+          ]
+        );
     }
 
     function isValidCatalogPricing(data) {

@@ -213,6 +213,7 @@ export async function registerWithEmailFirebase(name, email, password) {
     if (!cred.user.emailVerified) {
       await sendEmailVerification(cred.user).catch(() => {});
     }
+    await ensureUserProfileInFirestore(cred.user, 'password').catch(() => {});
     return formatFirebaseUser(cred.user);
   } catch (err) {
     if (err?.code === 'auth/operation-not-allowed') {
@@ -234,9 +235,7 @@ export async function loginWithEmailFirebase(email, password) {
   if (!auth) throw new Error('Firebase Auth no está disponible.');
   try {
     const cred = await signInWithEmailAndPassword(auth, email, password);
-    if (cred.user.emailVerified) {
-      await ensureUserProfileInFirestore(cred.user, 'password');
-    }
+    await ensureUserProfileInFirestore(cred.user, 'password').catch(() => {});
     return formatFirebaseUser(cred.user);
   } catch (err) {
     if (err?.code === 'auth/operation-not-allowed') {
