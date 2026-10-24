@@ -448,6 +448,7 @@ export function buildCutlist(pieces, s, hw) {
         label: p.label,
         baseName: p.name,
         role,
+        kind: p.kind,
         orientation: ori.o,
         mat: p.mat,
         w,
@@ -457,6 +458,19 @@ export function buildCutlist(pieces, s, hw) {
         thickness: T,
         qty: 0,
         holes: p.holes || 0,
+        holeLayout: p.holeLayout || 'h',
+        side: p.side || null,
+        pull: p.pull || null,
+        hasGroove: Boolean(p.kind === 'side' || p.kind === 'h' || (p.kind === 'drawer' && p.name !== 'Fondo de gaveta')),
+        grooveFace: p.kind === 'side' || p.kind === 'h' ? 'back' : p.kind === 'drawer' && p.name !== 'Fondo de gaveta' ? 'front' : null,
+        grooveLength:
+          p.kind === 'side'
+            ? round(p.sy)
+            : p.kind === 'h'
+              ? round(p.sx)
+              : p.kind === 'drawer' && p.name !== 'Fondo de gaveta'
+                ? round(Math.max(p.sx, p.sz))
+                : 0,
         unitPrice: area * (s[priceKey] || 0),
         unitArea: area,
       };

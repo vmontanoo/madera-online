@@ -1741,5 +1741,235 @@ svg .drag-handle.col-top-handle { cursor: ns-resize; }
   }
 }
 
+/* ==========================================================================
+   Dynamic Resizable Split Panes & Interactive 3D Cutlist Piece Cards
+   ========================================================================== */
+
+.pane-splitter {
+  width: 8px;
+  flex: 0 0 8px;
+  background: var(--bg);
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  cursor: col-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 6;
+  transition: background-color 0.15s ease;
+  user-select: none;
+  touch-action: none;
+}
+
+.pane-splitter:hover,
+.pane-splitter.dragging {
+  background: rgba(255, 184, 0, 0.22);
+}
+
+.pane-splitter .splitter-grip {
+  width: 2px;
+  height: 36px;
+  border-radius: 2px;
+  background: var(--line);
+  transition: background-color 0.15s ease, height 0.15s ease;
+}
+
+.pane-splitter:hover .splitter-grip,
+.pane-splitter.dragging .splitter-grip {
+  background: var(--accent);
+  height: 52px;
+}
+
+.dock-splitter {
+  height: 8px;
+  flex: 0 0 8px;
+  margin: 0 12px;
+  cursor: row-resize;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  user-select: none;
+  touch-action: none;
+  border-radius: 4px;
+  transition: background-color 0.15s ease;
+}
+
+.dock-splitter:hover,
+.dock-splitter.dragging {
+  background: rgba(255, 184, 0, 0.2);
+}
+
+.dock-splitter .splitter-grip {
+  width: 42px;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line);
+  transition: background-color 0.15s ease, width 0.15s ease;
+}
+
+.dock-splitter:hover .splitter-grip,
+.dock-splitter.dragging .splitter-grip {
+  background: var(--accent);
+  width: 64px;
+}
+
+/* Interactive 3D Cutlist Cards & Machining Tags */
+.cards-hint-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--muted);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  padding: 6px 12px;
+  margin-bottom: 10px;
+}
+
+.pcard {
+  cursor: grab;
+  user-select: none;
+  transition: border-color 0.15s ease, transform 0.12s ease;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.pcard:hover {
+  border-color: rgba(255, 184, 0, 0.65);
+}
+
+.pcard.rotating {
+  cursor: grabbing;
+  border-color: var(--accent);
+}
+
+.pcard.big {
+  cursor: grab;
+  padding: 12px 14px;
+}
+
+.pcard.big.rotating {
+  cursor: grabbing;
+}
+
+.piece-svg-wrap {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.pcard-rot-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 4px;
+}
+
+.pcard-rot-hint {
+  font-size: 11px;
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.pcard-rot-btns {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.pcard-rot-btns button {
+  font-size: 11px;
+  padding: 3px 9px;
+  border-radius: 6px;
+  background: var(--panel2);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+
+.pcard-rot-btns button:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.pcard-mach-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 2px 0;
+}
+
+.pcard-mach-tag {
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.pcard-mach-tag.groove {
+  background: rgba(0, 229, 255, 0.14);
+  color: #4ce8ff;
+  border: 1px solid rgba(0, 229, 255, 0.35);
+}
+
+.pcard-mach-tag.slide {
+  background: rgba(255, 145, 0, 0.14);
+  color: #ffb347;
+  border: 1px solid rgba(255, 145, 0, 0.35);
+}
+
+.pcard-mach-tag.hole {
+  background: rgba(255, 82, 82, 0.15);
+  color: #ff8a80;
+  border: 1px solid rgba(255, 82, 82, 0.35);
+}
+
+.pcard-name-mini {
+  font-size: 11px;
+  color: var(--muted);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 72px;
+}
+
+@media (max-width: 960px) {
+  .pane-splitter {
+    width: 100%;
+    height: 10px;
+    flex: 0 0 10px;
+    cursor: row-resize;
+    border-left: none;
+    border-right: none;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .pane-splitter .splitter-grip {
+    width: 44px;
+    height: 3px;
+  }
+
+  .editor[data-mobile-pane="2d"] .pane-splitter,
+  .editor[data-mobile-pane="3d"] .pane-splitter,
+  .editor[data-mobile-pane="cutlist"] .pane-splitter {
+    display: none;
+  }
+}
+
+@media print {
+  .pane-splitter,
+  .dock-splitter {
+    display: none !important;
+  }
+}
+
 
 

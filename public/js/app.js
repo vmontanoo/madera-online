@@ -1391,6 +1391,7 @@ async function editorView(id) {
     newType: 'drawer',
     cutSel: null,
     showMach: true,
+    pieceAngles: {},
   };
   state.project.settings = { ...DEFAULTS, ...state.project.settings };
   const undo = [];
@@ -1399,7 +1400,7 @@ async function editorView(id) {
   let saveTimer = null;
 
   $app.innerHTML = `<div class="editor" data-mobile-pane="split">
-    <div class="left">
+    <div class="left" id="leftPane">
       <div class="topbar">
         <div class="pill topbar-nav-pill"><button id="back" title="Volver">←</button><input id="name" style="background:transparent;border:none;width:150px" value="${esc(state.name)}"><button id="cfg" title="Ajustes del proyecto">⚙</button></div>
         <div class="pill"><button data-tab="design" class="on">Diseño</button><button data-tab="cutlist">Cutlist</button></div>
@@ -1415,11 +1416,13 @@ async function editorView(id) {
       </div>
       <div id="designPane" style="display:contents">
         <div class="canvas" id="canvas"></div>
+        <div class="dock-splitter" id="dockSplitter" title="Arrastra para ajustar el alto del lienzo 2D y el panel inferior (doble clic para restablecer)"><span class="splitter-grip"></span></div>
         <div class="dock" id="dock"></div>
       </div>
       <div class="cutlist" id="cutlist" style="display:none"></div>
     </div>
-    <div class="right">
+    <div class="pane-splitter" id="paneSplitter" title="Arrastra para ajustar el ancho de los paneles 2D / 3D / Cutlist (doble clic para restablecer)"><span class="splitter-grip"></span></div>
+    <div class="right" id="rightPane">
       <div class="rtools">
         <label class="muted">Explosión</label><input type="range" id="explode" min="0" max="1" step="0.05" value="0.6">
         <label><input type="checkbox" id="hideF"> Ocultar frentes</label>
@@ -1439,6 +1442,148 @@ async function editorView(id) {
     vwrResizeObserver.observe(vwrEl);
   }
   const $ = (s) => document.querySelector(s);
+
+  // Resizable Splitters: Left/Right (2D <-> 3D / Cutlist <-> Cards) and Canvas/Dock
+  const paneSplitter = document.getElementById('paneSplitter');
+  const leftPaneEl = document.getElementById('leftPane');
+  const editorEl = document.querySelector('.editor');
+  if (paneSplitter && leftPaneEl && editorEl) {
+    const startPaneResize = (startClientX) => {
+      const rect = editorEl.getBoundingClientRect();
+      if (!rect.width) return;
+      paneSplitter.classList.add('dragging');
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'col-resize';
+      const applyX = (clientX) => {
+        const pct = Math.max(24, Math.min(76, ((clientX - rect.left) / rect.width) * 100));
+        leftPaneEl.style.width = `${pct.toFixed(2)}%`;
+        leftPaneEl.style.flex = `0 0 ${pct.toFixed(2)}%`;
+        if (viewer && state.tab !== 'cutlist') viewer.resize();
+      };
+      const onMove = (ev) => applyX(ev.clientX);
+      const onUp = () => {
+        paneSplitter.classList.remove('dragging');
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+        if (viewer && state.tab !== 'cutlist') viewer.resize();
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    };
+    paneSplitter.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startPaneResize(e.clientX);
+    });
+    paneSplitter.addEventListener(
+      'touchstart',
+      (e) => {
+        if (!e.touches || !e.touches[0]) return;
+        e.preventDefault();
+        const rect = editorEl.getBoundingClientRect();
+        if (!rect.width) return;
+        paneSplitter.classList.add('dragging');
+        const onTouchMove = (ev) => {
+          if (!ev.touches || !ev.touches[0]) return;
+          const isStacked = window.innerWidth <= 960;
+          if (isStacked) {
+            const pctH = Math.max(25, Math.min(75, ((ev.touches[0].clientY - rect.top) / rect.height) * 100));
+            leftPaneEl.style.height = `${pctH.toFixed(2)}%`;
+            leftPaneEl.style.flex = `0 0 ${pctH.toFixed(2)}%`;
+          } else {
+            const pctW = Math.max(24, Math.min(76, ((ev.touches[0].clientX - rect.left) / rect.width) * 100));
+            leftPaneEl.style.width = `${pctW.toFixed(2)}%`;
+            leftPaneEl.style.flex = `0 0 ${pctW.toFixed(2)}%`;
+          }
+          if (viewer && state.tab !== 'cutlist') viewer.resize();
+        };
+        const onTouchEnd = () => {
+          paneSplitter.classList.remove('dragging');
+          window.removeEventListener('touchmove', onTouchMove);
+          window.removeEventListener('touchend', onTouchEnd);
+          if (viewer && state.tab !== 'cutlist') viewer.resize();
+        };
+        window.addEventListener('touchmove', onTouchMove, { passive: false });
+        window.addEventListener('touchend', onTouchEnd);
+      },
+      { passive: false }
+    );
+    paneSplitter.addEventListener('dblclick', () => {
+      leftPaneEl.style.width = '';
+      leftPaneEl.style.height = '';
+      leftPaneEl.style.flex = '';
+      if (viewer && state.tab !== 'cutlist') viewer.resize();
+    });
+  }
+
+  const dockSplitter = document.getElementById('dockSplitter');
+  const dockEl = document.getElementById('dock');
+  if (dockSplitter && dockEl && leftPaneEl) {
+    const startDockResize = (startY) => {
+      const startH = dockEl.getBoundingClientRect().height;
+      const paneH = leftPaneEl.getBoundingClientRect().height || 700;
+      dockSplitter.classList.add('dragging');
+      document.body.style.userSelect = 'none';
+      document.body.style.cursor = 'row-resize';
+      const applyY = (clientY) => {
+        const delta = startY - clientY;
+        const nextH = Math.max(120, Math.min(Math.round(paneH * 0.68), Math.round(startH + delta)));
+        dockEl.style.height = `${nextH}px`;
+        dockEl.style.maxHeight = `${nextH}px`;
+        dockEl.style.flex = `0 0 ${nextH}px`;
+        dockEl.style.overflowY = 'auto';
+      };
+      const onMove = (ev) => applyY(ev.clientY);
+      const onUp = () => {
+        dockSplitter.classList.remove('dragging');
+        document.body.style.userSelect = '';
+        document.body.style.cursor = '';
+        window.removeEventListener('mousemove', onMove);
+        window.removeEventListener('mouseup', onUp);
+      };
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('mouseup', onUp);
+    };
+    dockSplitter.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startDockResize(e.clientY);
+    });
+    dockSplitter.addEventListener(
+      'touchstart',
+      (e) => {
+        if (!e.touches || !e.touches[0]) return;
+        e.preventDefault();
+        const startY = e.touches[0].clientY;
+        const startH = dockEl.getBoundingClientRect().height;
+        const paneH = leftPaneEl.getBoundingClientRect().height || 700;
+        dockSplitter.classList.add('dragging');
+        const onTouchMove = (ev) => {
+          if (!ev.touches || !ev.touches[0]) return;
+          const delta = startY - ev.touches[0].clientY;
+          const nextH = Math.max(120, Math.min(Math.round(paneH * 0.68), Math.round(startH + delta)));
+          dockEl.style.height = `${nextH}px`;
+          dockEl.style.maxHeight = `${nextH}px`;
+          dockEl.style.flex = `0 0 ${nextH}px`;
+          dockEl.style.overflowY = 'auto';
+        };
+        const onTouchEnd = () => {
+          dockSplitter.classList.remove('dragging');
+          window.removeEventListener('touchmove', onTouchMove);
+          window.removeEventListener('touchend', onTouchEnd);
+        };
+        window.addEventListener('touchmove', onTouchMove, { passive: false });
+        window.addEventListener('touchend', onTouchEnd);
+      },
+      { passive: false }
+    );
+    dockSplitter.addEventListener('dblclick', () => {
+      dockEl.style.height = '';
+      dockEl.style.maxHeight = '';
+      dockEl.style.flex = '';
+      dockEl.style.overflowY = '';
+    });
+  }
 
   const save = () => {
     clearTimeout(saveTimer);
@@ -1918,22 +2063,212 @@ async function editorView(id) {
     });
   }
 
-  function pieceSvg(r, big) {
-    // Caja oblicua (ancho x alto con espesor) escalada para caber en el recuadro
-    const W = big ? 360 : 150;
-    const Hh = big ? 220 : 90;
-    const k = Math.min((W * 0.7) / r.w, (Hh * 0.7) / r.h);
-    const w = r.w * k;
-    const h = r.h * k;
-    const d = Math.max(4, Math.min(r.thickness * k * 3, 24));
-    const x0 = (W - w - d) / 2;
-    const y0 = (Hh + h - d) / 2;
-    const f = [[x0, y0], [x0 + w, y0], [x0 + w, y0 - h], [x0, y0 - h]];
-    const b = f.map(([x, y]) => [x + d, y - d]);
-    const pts = (a) => a.map((p) => p.join(',')).join(' ');
-    return `<svg viewBox="0 0 ${W} ${Hh}" width="100%"><g fill="none" stroke="#ffb800" stroke-width="2.5" stroke-linejoin="round">
-      <polygon points="${pts(f)}"/><polygon points="${pts(b)}" opacity=".6"/>
-      ${f.map((p, i) => `<line x1="${p[0]}" y1="${p[1]}" x2="${b[i][0]}" y2="${b[i][1]}" opacity=".6"/>`).join('')}</g></svg>`;
+  function getPieceAngle(pieceId) {
+    if (!state.pieceAngles[pieceId]) {
+      state.pieceAngles[pieceId] = { yaw: -0.52, pitch: 0.36 };
+    }
+    return state.pieceAngles[pieceId];
+  }
+
+  function pieceSvg(r, big, customAngle) {
+    // Proyección 3D interactiva (rotación yaw/pitch con arrastrar cursor) + visualización de mecanizados
+    const W = big ? 380 : 156;
+    const Hh = big ? 230 : 96;
+    const ang = customAngle || getPieceAngle(r.id);
+    const yaw = ang.yaw ?? -0.52;
+    const pitch = ang.pitch ?? 0.36;
+
+    const maxSpan = Math.max(r.w || 100, r.h || 100, 1);
+    const fitScale = (Math.min(W, Hh) * (big ? 0.64 : 0.66)) / maxSpan;
+    const w = Math.max(18, (r.w || 100) * fitScale);
+    const h = Math.max(18, (r.h || 100) * fitScale);
+    const d = Math.max(big ? 10 : 6, Math.min((r.thickness || 18) * fitScale * 3.4, big ? 28 : 18));
+
+    const hx = w / 2;
+    const hy = h / 2;
+    const hz = d / 2;
+
+    const cosY = Math.cos(yaw);
+    const sinY = Math.sin(yaw);
+    const cosP = Math.cos(pitch);
+    const sinP = Math.sin(pitch);
+    const cx = W / 2;
+    const cy = Hh / 2;
+
+    const proj = (x, y, z) => {
+      const x1 = x * cosY + z * sinY;
+      const z1 = -x * sinY + z * cosY;
+      const y2 = y * cosP - z1 * sinP;
+      const z2 = y * sinP + z1 * cosP;
+      return [cx + x1, cy - y2, z2];
+    };
+
+    const pts = (arr) => arr.map((p) => `${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+
+    // 8 vértices del tablero 3D
+    const v = [
+      proj(-hx, -hy, hz),  // 0: front-bottom-left
+      proj(hx, -hy, hz),   // 1: front-bottom-right
+      proj(hx, hy, hz),    // 2: front-top-right
+      proj(-hx, hy, hz),   // 3: front-top-left
+      proj(-hx, -hy, -hz), // 4: back-bottom-left
+      proj(hx, -hy, -hz),  // 5: back-bottom-right
+      proj(hx, hy, -hz),   // 6: back-top-right
+      proj(-hx, hy, -hz),  // 7: back-top-left
+    ];
+
+    const faces = [
+      { idx: [0, 1, 2, 3], fill: 'rgba(255, 184, 0, 0.14)', name: 'front' },
+      { idx: [4, 5, 6, 7], fill: 'rgba(255, 184, 0, 0.07)', name: 'back' },
+      { idx: [3, 2, 6, 7], fill: 'rgba(255, 205, 60, 0.20)', name: 'top' },
+      { idx: [0, 1, 5, 4], fill: 'rgba(180, 125, 0, 0.14)', name: 'bottom' },
+      { idx: [1, 5, 6, 2], fill: 'rgba(230, 160, 0, 0.18)', name: 'right' },
+      { idx: [0, 4, 7, 3], fill: 'rgba(200, 140, 0, 0.12)', name: 'left' },
+    ].map((f) => {
+      const zAvg = f.idx.reduce((acc, idx) => acc + v[idx][2], 0) / 4;
+      return { ...f, zAvg };
+    });
+
+    faces.sort((a, b) => a.zAvg - b.zAvg);
+
+    let machSvg = '';
+    const s = layout?.settings || DEFAULTS;
+
+    // 1. Mecanizado de Ranura (rail-cut):
+    // - En laterales verticales ('side') y tapas/pisos ('h'): ranura trasera para encajar el fondo.
+    // - En laterales de gaveta ('Lateral de gaveta') y frente/trasera interna ('Frente/trasera de gaveta'):
+    //   ranura inferior interna para el fondo de gaveta (y guía de riel en el costado de gaveta, NUNCA en la tapa frontal).
+    if (r.hasGroove) {
+      const strokeW = big ? 2.2 : 1.5;
+      if (r.grooveFace === 'bottom') {
+        const gy1 = -hy + Math.max(3, h * 0.12);
+        const gy2 = gy1 + Math.max(2.5, Math.min(6, h * 0.08));
+        const gzSurface = hz;
+        const gzDepth = hz - d * 0.45;
+        const gFront = [
+          proj(-hx, gy1, gzSurface),
+          proj(hx, gy1, gzSurface),
+          proj(hx, gy2, gzSurface),
+          proj(-hx, gy2, gzSurface),
+        ];
+        const gInner = [
+          proj(-hx, gy1, gzDepth),
+          proj(hx, gy1, gzDepth),
+          proj(hx, gy2, gzDepth),
+          proj(-hx, gy2, gzDepth),
+        ];
+        machSvg += `<g class="mach-groove" stroke="#00e5ff" stroke-width="${strokeW}" fill="rgba(0, 229, 255, 0.28)">
+          <polygon points="${pts(gInner)}" opacity="0.65"/>
+          <polygon points="${pts(gFront)}"/>
+          <line x1="${gFront[0][0].toFixed(1)}" y1="${gFront[0][1].toFixed(1)}" x2="${gInner[0][0].toFixed(1)}" y2="${gInner[0][1].toFixed(1)}"/>
+          <line x1="${gFront[1][0].toFixed(1)}" y1="${gFront[1][1].toFixed(1)}" x2="${gInner[1][0].toFixed(1)}" y2="${gInner[1][1].toFixed(1)}"/>
+        </g>`;
+
+        if (r.role === 'Lateral de gaveta') {
+          const r1 = proj(-hx, 0, -hz);
+          const r2 = proj(hx, 0, -hz);
+          const r3 = proj(-hx, -hy * 0.18, -hz);
+          const r4 = proj(hx, -hy * 0.18, -hz);
+          machSvg += `<g class="mach-slide-ref" stroke="#ff9100" stroke-width="${big ? 1.8 : 1.2}" stroke-dasharray="4 3" fill="rgba(255, 145, 0, 0.15)">
+            <polygon points="${pts([r1, r2, r4, r3])}"/>
+          </g>`;
+        }
+      } else {
+        const isVert = r.h >= r.w;
+        const grooveW = Math.max(2.5, Math.min(big ? 7 : 4.5, (isVert ? w : h) * 0.09));
+        const inset = Math.max(3, (isVert ? w : h) * 0.1);
+        const gzSurface = -hz;
+        const gzDepth = -hz + d * 0.42;
+        let gOuter, gBottom;
+        if (isVert) {
+          const gx1 = hx - inset - grooveW;
+          const gx2 = hx - inset;
+          gOuter = [
+            proj(gx1, -hy, gzSurface),
+            proj(gx2, -hy, gzSurface),
+            proj(gx2, hy, gzSurface),
+            proj(gx1, hy, gzSurface),
+          ];
+          gBottom = [
+            proj(gx1, -hy, gzDepth),
+            proj(gx2, -hy, gzDepth),
+            proj(gx2, hy, gzDepth),
+            proj(gx1, hy, gzDepth),
+          ];
+        } else {
+          const gy1 = hy - inset - grooveW;
+          const gy2 = hy - inset;
+          gOuter = [
+            proj(-hx, gy1, gzSurface),
+            proj(hx, gy1, gzSurface),
+            proj(hx, gy2, gzSurface),
+            proj(-hx, gy2, gzSurface),
+          ];
+          gBottom = [
+            proj(-hx, gy1, gzDepth),
+            proj(hx, gy1, gzDepth),
+            proj(hx, gy2, gzDepth),
+            proj(-hx, gy2, gzDepth),
+          ];
+        }
+        machSvg += `<g class="mach-groove" stroke="#00e5ff" stroke-width="${strokeW}" fill="rgba(0, 229, 255, 0.26)">
+          <polygon points="${pts(gBottom)}" opacity="0.65"/>
+          <polygon points="${pts(gOuter)}"/>
+          <line x1="${gOuter[0][0].toFixed(1)}" y1="${gOuter[0][1].toFixed(1)}" x2="${gBottom[0][0].toFixed(1)}" y2="${gBottom[0][1].toFixed(1)}"/>
+          <line x1="${gOuter[2][0].toFixed(1)}" y1="${gOuter[2][1].toFixed(1)}" x2="${gBottom[2][0].toFixed(1)}" y2="${gBottom[2][1].toFixed(1)}"/>
+        </g>`;
+      }
+    }
+
+    // 2. Mecanizado de Perforación pasante (through-hole) en Puertas y Frentes de gaveta:
+    if (r.holes > 0) {
+      const holeR = Math.max(big ? 4.2 : 2.6, Math.min((s.pullDia || 5) * fitScale * 1.4, big ? 7.5 : 4.5));
+      const insetScaled = Math.min(
+        Math.max(big ? 12 : 6, (s.pullInset || 40) * fitScale),
+        Math.min(hx * 0.75, hy * 0.75)
+      );
+      const gapScaled = Math.min(
+        Math.max(big ? 18 : 10, (s.pullGap || 128) * fitScale),
+        (r.holeLayout === 'v' ? h : w) * 0.62
+      );
+
+      const holeCoords = [];
+      if (r.holeLayout === 'v') {
+        const hxPos = r.side === 'right' ? hx - insetScaled : -hx + insetScaled;
+        if (r.holes === 2) {
+          holeCoords.push([hxPos, gapScaled / 2], [hxPos, -gapScaled / 2]);
+        } else {
+          holeCoords.push([hxPos, 0]);
+        }
+      } else {
+        const hyPos = hy - insetScaled;
+        if (r.holes === 2) {
+          holeCoords.push([-gapScaled / 2, hyPos], [gapScaled / 2, hyPos]);
+        } else {
+          holeCoords.push([0, hyPos]);
+        }
+      }
+
+      holeCoords.forEach(([px, py]) => {
+        const pFront = proj(px, py, hz);
+        const pBack = proj(px, py, -hz);
+        const cross = holeR * 1.45;
+        machSvg += `<g class="mach-hole">
+          <line x1="${pFront[0].toFixed(1)}" y1="${pFront[1].toFixed(1)}" x2="${pBack[0].toFixed(1)}" y2="${pBack[1].toFixed(1)}" stroke="#ff5252" stroke-width="${big ? 2.4 : 1.6}" stroke-dasharray="2.5 2"/>
+          <circle cx="${pBack[0].toFixed(1)}" cy="${pBack[1].toFixed(1)}" r="${(holeR * 0.85).toFixed(1)}" fill="rgba(255, 82, 82, 0.2)" stroke="#ff5252" stroke-width="${big ? 1.5 : 1.1}" opacity="0.75"/>
+          <circle cx="${pFront[0].toFixed(1)}" cy="${pFront[1].toFixed(1)}" r="${holeR.toFixed(1)}" fill="#171514" stroke="#ff5252" stroke-width="${big ? 2.2 : 1.5}"/>
+          <line x1="${(pFront[0] - cross).toFixed(1)}" y1="${pFront[1].toFixed(1)}" x2="${(pFront[0] + cross).toFixed(1)}" y2="${pFront[1].toFixed(1)}" stroke="#ff5252" stroke-width="1" opacity="0.8"/>
+          <line x1="${pFront[0].toFixed(1)}" y1="${(pFront[1] - cross).toFixed(1)}" x2="${pFront[0].toFixed(1)}" y2="${(pFront[1] + cross).toFixed(1)}" stroke="#ff5252" stroke-width="1" opacity="0.8"/>
+        </g>`;
+      });
+    }
+
+    return `<svg viewBox="0 0 ${W} ${Hh}" width="100%">
+      <g stroke="#ffb800" stroke-width="${big ? 2.2 : 1.8}" stroke-linejoin="round">
+        ${faces.map((f) => `<polygon points="${pts(f.idx.map((i) => v[i]))}" fill="${f.fill}"/>`).join('')}
+      </g>
+      ${machSvg}
+    </svg>`;
   }
 
   function drawCutlist() {
@@ -2100,11 +2435,53 @@ async function editorView(id) {
       <p class="muted print-note" style="margin-top:10px;font-size:11px">Los precios unitarios de materiales y herrajes se configuran en los ajustes del proyecto (⚙).</p>
     `;
 
+    const pieceMachBadges = (r) => {
+      const badges = [];
+      if (r.hasGroove) {
+        badges.push(
+          `<span class="pcard-mach-tag groove" title="Ranura mecanizada (rail-cut) en cara ${r.grooveFace === 'bottom' ? 'inferior interna para fondo de gaveta' : 'trasera para encaje de fondo'}">Ranura ${r.grooveFace === 'bottom' ? 'piso gaveta' : 'fondo'}</span>`
+        );
+      }
+      if (r.role === 'Lateral de gaveta') {
+        badges.push(`<span class="pcard-mach-tag slide" title="En los costados de la gaveta se instala el riel telescópico">Riel lateral</span>`);
+      }
+      if (r.holes > 0) {
+        badges.push(
+          `<span class="pcard-mach-tag hole" title="Perforación pasante para tirador (${r.holes} × Ø${s.pullDia || 5}mm)">${r.holes}× Perf. Ø${s.pullDia || 5}mm</span>`
+        );
+      }
+      return badges.length ? `<div class="pcard-mach-row">${badges.join('')}</div>` : '';
+    };
+
     // tarjetas a la derecha
-    $('#cards').innerHTML = selRow
-      ? `<div class="pcard big sel">${pieceSvg(selRow, true)}<div class="pmeta"><span class="pid">${selRow.id}</span><span><b>${esc(selRow.name)}</b><br><span class="muted">${selRow.length} × ${selRow.width} × ${selRow.thickness} mm · ${fmtMoney(selRow.unitPrice)} c/u</span></span><span class="qty">×${selRow.qty}</span></div></div>
-         <div class="pgrid">${cl.rows.filter((r) => r.id !== selRow.id).map(cardHtml).join('')}</div>`
-      : `<div class="pgrid">${cl.rows.map(cardHtml).join('')}</div>`;
+    $('#cards').innerHTML = `
+      <div class="cards-hint-bar">
+        <span>Arrastra cualquier pieza con el cursor para girarla en 3D y ver sus ranuras y perforaciones</span>
+      </div>
+      ${
+        selRow
+          ? `<div class="pcard big sel" data-id="${selRow.id}">
+              <div class="pcard-rot-toolbar">
+                <span class="pcard-rot-hint">↻ Arrastra la pieza para rotar en 3D</span>
+                <div class="pcard-rot-btns">
+                  <button type="button" data-rot-preset="iso" title="Vista isométrica">Isométrica</button>
+                  <button type="button" data-rot-preset="front" title="Vista cara frontal">Frente</button>
+                  <button type="button" data-rot-preset="back" title="Vista cara trasera / ranura">Trasera / Ranura</button>
+                  <button type="button" data-rot-preset="side" title="Vista canto / perfil">Canto</button>
+                </div>
+              </div>
+              <div class="piece-svg-wrap">${pieceSvg(selRow, true)}</div>
+              ${pieceMachBadges(selRow)}
+              <div class="pmeta">
+                <span class="pid">${selRow.id}</span>
+                <span><b>${esc(selRow.name)}</b> <span class="muted">(${esc(selRow.role)})</span><br><span class="muted">${selRow.length} × ${selRow.width} × ${selRow.thickness} mm · ${fmtMoney(selRow.unitPrice)} c/u</span></span>
+                <span class="qty">×${selRow.qty}</span>
+              </div>
+            </div>
+            <div class="pgrid">${cl.rows.filter((r) => r.id !== selRow.id).map((r) => cardHtml(r, pieceMachBadges(r))).join('')}</div>`
+          : `<div class="pgrid">${cl.rows.map((r) => cardHtml(r, pieceMachBadges(r))).join('')}</div>`
+      }
+    `;
 
     const pick = (id) => {
       state.cutSel = state.cutSel === id ? null : id;
@@ -2112,7 +2489,92 @@ async function editorView(id) {
     };
 
     $('#cutlist').querySelectorAll('tr[data-id]').forEach((tr) => (tr.onclick = () => pick(tr.dataset.id)));
-    $('#cards').querySelectorAll('.pcard[data-id]').forEach((c) => (c.onclick = () => pick(c.dataset.id)));
+
+    // Botones de vista rápida en la tarjeta grande seleccionada
+    $('#cards').querySelectorAll('button[data-rot-preset]').forEach((btn) => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (!selRow) return;
+        const preset = btn.dataset.rotPreset;
+        if (preset === 'front') state.pieceAngles[selRow.id] = { yaw: 0, pitch: 0 };
+        else if (preset === 'back') state.pieceAngles[selRow.id] = { yaw: Math.PI - 0.35, pitch: -0.28 };
+        else if (preset === 'side') state.pieceAngles[selRow.id] = { yaw: Math.PI / 2 - 0.18, pitch: 0.22 };
+        else state.pieceAngles[selRow.id] = { yaw: -0.52, pitch: 0.36 };
+        const wrap = $('#cards').querySelector('.pcard.big .piece-svg-wrap');
+        if (wrap) wrap.innerHTML = pieceSvg(selRow, true);
+      };
+    });
+
+    // Interacción: arrastrar con mouse o dedo sobre cualquier tarjeta .pcard gira la pieza 3D en tiempo real;
+    // un clic corto (sin arrastrar) selecciona o deselecciona la pieza.
+    $('#cards').querySelectorAll('.pcard[data-id]').forEach((card) => {
+      const pid = card.dataset.id;
+      const rowObj = cl.rows.find((r) => r.id === pid);
+      if (!rowObj) return;
+      const isBig = card.classList.contains('big');
+      const svgWrap = card.querySelector('.piece-svg-wrap');
+
+      const attachDragRotate = (startX, startY, isTouch) => {
+        const ang = getPieceAngle(pid);
+        const startYaw = ang.yaw;
+        const startPitch = ang.pitch;
+        let moved = false;
+        card.classList.add('rotating');
+
+        const updateAngle = (cx, cy) => {
+          const dx = cx - startX;
+          const dy = cy - startY;
+          if (!moved && Math.hypot(dx, dy) > 4) {
+            moved = true;
+          }
+          if (moved) {
+            state.pieceAngles[pid] = {
+              yaw: startYaw + dx * 0.015,
+              pitch: Math.max(-1.45, Math.min(1.45, startPitch - dy * 0.015)),
+            };
+            if (svgWrap) {
+              svgWrap.innerHTML = pieceSvg(rowObj, isBig, state.pieceAngles[pid]);
+            }
+          }
+        };
+
+        if (!isTouch) {
+          const onMove = (ev) => updateAngle(ev.clientX, ev.clientY);
+          const onUp = () => {
+            card.classList.remove('rotating');
+            window.removeEventListener('mousemove', onMove);
+            window.removeEventListener('mouseup', onUp);
+            if (!moved) pick(pid);
+          };
+          window.addEventListener('mousemove', onMove);
+          window.addEventListener('mouseup', onUp);
+        } else {
+          const onTouchMove = (ev) => {
+            if (!ev.touches || !ev.touches[0]) return;
+            updateAngle(ev.touches[0].clientX, ev.touches[0].clientY);
+            if (moved && ev.cancelable) ev.preventDefault();
+          };
+          const onTouchEnd = () => {
+            card.classList.remove('rotating');
+            window.removeEventListener('touchmove', onTouchMove);
+            window.removeEventListener('touchend', onTouchEnd);
+            if (!moved) pick(pid);
+          };
+          window.addEventListener('touchmove', onTouchMove, { passive: false });
+          window.addEventListener('touchend', onTouchEnd);
+        }
+      };
+
+      card.onmousedown = (e) => {
+        if (e.target.closest('button')) return;
+        e.preventDefault();
+        attachDragRotate(e.clientX, e.clientY, false);
+      };
+      card.ontouchstart = (e) => {
+        if (e.target.closest('button') || !e.touches || !e.touches[0]) return;
+        attachDragRotate(e.touches[0].clientX, e.touches[0].clientY, true);
+      };
+    });
     const machBox = $('#mach');
     if (machBox) {
       machBox.onchange = (e) => {
@@ -2536,8 +2998,8 @@ async function editorView(id) {
       };
     }
   }
-  const cardHtml = (r) =>
-    `<div class="pcard" data-id="${r.id}">${pieceSvg(r, false)}<div class="pmeta"><span class="pid">${r.id}</span><span class="qty">×${r.qty}</span></div></div>`;
+  const cardHtml = (r, badgesHtml = '') =>
+    `<div class="pcard" data-id="${r.id}" title="Arrastra para rotar en 3D · Clic para ampliar"><div class="piece-svg-wrap">${pieceSvg(r, false)}</div>${badgesHtml}<div class="pmeta"><span class="pid">${r.id}</span><span class="pcard-name-mini">${esc(r.name)}</span><span class="qty">×${r.qty}</span></div></div>`;
 
   function refresh() {
     layout = computeLayout(state.project);
